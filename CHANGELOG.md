@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-08-12
+
+### Added
+
+- `git gtr pr <number|url|branch>` creates GitHub pull request worktrees with GTR-managed paths, copy and hook automation, editor/AI launch options, and shell `--cd` integration; newer GitHub CLI versions use native worktree checkout while older versions retain a compatible fallback ([#187](https://github.com/coderabbitai/git-worktree-runner/pull/187))
+- `git gtr new` now inherits sparse-checkout configuration from the selected base worktree on Git 2.36+, with `--sparse`, `--no-sparse`, and `gtr.sparse.inherit` controls ([#186](https://github.com/coderabbitai/git-worktree-runner/pull/186))
+
+### Changed
+
+- Fork pull requests now run ShellCheck, completion verification, and BATS with a least-privilege, non-persisted workflow token after maintainer approval ([#185](https://github.com/coderabbitai/git-worktree-runner/pull/185))
+
 ## [2.8.2] - 2026-08-12
 
 ### Fixed
