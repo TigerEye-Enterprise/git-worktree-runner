@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-08-12
+
+### Fixed
+
+- `gtr.copy.includeDirs` now resolves literal paths without full-repository scans, batches unavoidable recursive discovery, and reuses results across `git gtr copy --all` targets while preserving nested basename matching ([#191](https://github.com/coderabbitai/git-worktree-runner/pull/191))
+
 ## [2.8.1] - 2026-08-12
 
 ### Fixed
