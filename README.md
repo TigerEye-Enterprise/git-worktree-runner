@@ -93,6 +93,7 @@ git gtr new my-feature          # Create worktree folder: my-feature
 git gtr new my-feature --editor # Create and open in editor
 git gtr new my-feature --ai     # Create and start AI tool
 git gtr new my-feature -e -a    # Create, open editor, then start AI
+git gtr pr 123                  # Create worktree for pull request #123
 git gtr editor my-feature       # Open in cursor
 git gtr ai my-feature           # Start claude
 
@@ -101,6 +102,7 @@ git gtr run my-feature npm test # Run tests
 
 # Navigate to worktree
 gtr new my-feature --cd         # Create and cd (requires shell integration)
+gtr pr 123 --cd                 # Create a PR worktree and cd
 gtr cd                          # Interactive picker (requires fzf + shell integration)
 gtr cd my-feature               # Requires shell integration (see below)
 cd "$(git gtr go my-feature)"   # Alternative without shell integration
@@ -123,6 +125,7 @@ While `git worktree` is powerful, it's verbose and manual. `git gtr` adds qualit
 | ----------------- | ------------------------------------------ | ---------------------------------------- |
 | Create worktree   | `git worktree add ../repo-feature feature` | `git gtr new feature`                    |
 | Create + open     | `git worktree add ... && cursor .`         | `git gtr new feature --editor`           |
+| Checkout PR       | `gh pr checkout 123`                       | `git gtr pr 123`                         |
 | Open in editor    | `cd ../repo-feature && cursor .`           | `git gtr editor feature`                 |
 | Start AI tool     | `cd ../repo-feature && claude`             | `git gtr ai feature`                     |
 | Copy config files | Manual copy/paste                          | Auto-copy via `gtr.copy.include`         |
@@ -184,6 +187,34 @@ git gtr new my-feature --name descriptive-variant                               
 - `--ai`, `-a`: Start AI tool after creation
 - `--yes`: Non-interactive mode
 
+### `git gtr pr <number|url|branch> [options]`
+
+Create a worktree from a GitHub pull request. Requires GitHub CLI (`gh`) for PR lookup.
+When supported, GTR delegates checkout to `gh pr checkout --worktree`; otherwise it
+uses a compatibility path that preserves configured Git remotes and protocols.
+The default local branch is the PR head branch so GitHub CLI can infer the PR from inside the worktree.
+
+```bash
+git gtr pr 123                         # Branch/folder from PR head branch
+git gtr pr 123 --branch review/fix     # Custom local branch
+git gtr pr 123 --folder review         # Custom folder name
+gtr pr 123 --cd                        # Create and cd with shell integration
+```
+
+**Options:**
+
+- `--branch <name>`, `-b`: Local branch name to use (default: PR head branch)
+- `--repo <repo>`, `-R`: Repository for `gh pr view`
+- `--remote <name>`: Override remote/repository used to fetch `refs/pull/<number>/head`
+- `--no-copy`: Skip file copying
+- `--no-hooks`: Skip post-create hooks
+- `--force`: Allow same branch in multiple worktrees (**requires --name or --folder**)
+- `--name <suffix>`: Custom folder name suffix
+- `--folder <name>`: Custom folder name
+- `--editor`, `-e`: Open in editor after creation
+- `--ai`, `-a`: Start AI tool after creation
+- `--yes`: Non-interactive mode
+
 ### `git gtr editor <branch> [--editor <name>]`
 
 Open worktree in editor (uses `gtr.editor.default` or `--editor` flag).
@@ -218,21 +249,22 @@ cd "$(git gtr go 1)"             # Navigate to main repo
 ```bash
 # Bash (add to ~/.bashrc)
 _gtr_init="${XDG_CACHE_HOME:-$HOME/.cache}/gtr/init-gtr.bash"
-[[ -f "$_gtr_init" ]] || eval "$(git gtr init bash)" || true
+[[ -f "$_gtr_init" ]] && head -n 1 "$_gtr_init" | grep -q ' init=6 ' || eval "$(git gtr init bash)" || true
 source "$_gtr_init" 2>/dev/null || true; unset _gtr_init
 
 # Zsh (add to ~/.zshrc)
 _gtr_init="${XDG_CACHE_HOME:-$HOME/.cache}/gtr/init-gtr.zsh"
-[[ -f "$_gtr_init" ]] || eval "$(git gtr init zsh)" || true
+[[ -f "$_gtr_init" ]] && head -n 1 "$_gtr_init" | grep -q ' init=6 ' || eval "$(git gtr init zsh)" || true
 source "$_gtr_init" 2>/dev/null || true; unset _gtr_init
 
 # Fish (add to ~/.config/fish/config.fish)
 set -l _gtr_init (test -n "$XDG_CACHE_HOME" && echo $XDG_CACHE_HOME || echo $HOME/.cache)/gtr/init-gtr.fish
-test -f "$_gtr_init"; or git gtr init fish >/dev/null 2>&1
+test -f "$_gtr_init"; and head -n 1 "$_gtr_init" | string match -q '* init=6 *'; or git gtr init fish >/dev/null 2>&1
 source "$_gtr_init" 2>/dev/null
 
 # Then navigate with:
 gtr new my-feature --cd  # Create and land in the new worktree
+gtr pr 123 --cd          # Create PR worktree and land in it
 gtr cd                # Interactive worktree picker (requires fzf)
 gtr cd my-feature
 gtr cd 1
@@ -393,7 +425,7 @@ git gtr config add gtr.hook.postCreate "npm install"
 # Inherit sparse-checkout from the base worktree on Git 2.36+ (default: on)
 git gtr config set gtr.sparse.inherit true
 
-# Re-source environment after gtr cd or gtr new --cd (runs in current shell)
+# Re-source environment after gtr cd, gtr new --cd, or gtr pr --cd (runs in current shell)
 git gtr config add gtr.hook.postCd "source ./vars.sh"
 
 # Disable color output (or use "always" to force it)
