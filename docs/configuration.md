@@ -263,7 +263,16 @@ Copy entire directories (like `node_modules`, `.venv`, `vendor`) to avoid reinst
 git gtr config add gtr.copy.includeDirs "node_modules"
 git gtr config add gtr.copy.includeDirs ".venv"
 git gtr config add gtr.copy.includeDirs "vendor"
+git gtr config add gtr.copy.includeDirs "packages/*/generated"
+```
 
+Directory include patterns are relative to the repository root. Literal paths
+are checked directly, `*` and `?` match within the pattern's explicit depth,
+and `**` enables recursive matching when a full-tree search is intentional. For
+backward compatibility, a bare basename that has no root-level match falls back
+to a recursive search. Prefer an explicit nested path to avoid that scan.
+
+```bash
 # Exclude specific nested directories (supports glob patterns)
 git gtr config add gtr.copy.excludeDirs "node_modules/.cache"  # Exclude exact path
 git gtr config add gtr.copy.excludeDirs "node_modules/.npm"    # Exclude npm cache (may contain tokens)
