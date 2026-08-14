@@ -17,6 +17,7 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Commands](#commands)
+- [AI Agent Usage](#ai-agent-usage)
 - [Configuration](#configuration)
 - [Shell Completions](#shell-completions-optional)
 - [Platform Support](#platform-support)
@@ -93,6 +94,7 @@ git gtr new my-feature          # Create worktree folder: my-feature
 git gtr new my-feature --editor # Create and open in editor
 git gtr new my-feature --ai     # Create and start AI tool
 git gtr new my-feature -e -a    # Create, open editor, then start AI
+git gtr pr 123                  # Create worktree for pull request #123
 git gtr editor my-feature       # Open in cursor
 git gtr ai my-feature           # Start claude
 
@@ -101,6 +103,7 @@ git gtr run my-feature npm test # Run tests
 
 # Navigate to worktree
 gtr new my-feature --cd         # Create and cd (requires shell integration)
+gtr pr 123 --cd                 # Create a PR worktree and cd
 gtr cd                          # Interactive picker (requires fzf + shell integration)
 gtr cd my-feature               # Requires shell integration (see below)
 cd "$(git gtr go my-feature)"   # Alternative without shell integration
@@ -111,8 +114,8 @@ git gtr list
 # Remove when done
 git gtr rm my-feature
 
-# Or remove all worktrees with merged PRs/MRs (requires gh or glab CLI)
-git gtr clean --merged
+# Or remove all worktrees with merged or closed PRs/MRs (requires gh or glab CLI)
+git gtr clean --merged --closed
 ```
 
 ## Why gtr?
@@ -123,6 +126,7 @@ While `git worktree` is powerful, it's verbose and manual. `git gtr` adds qualit
 | ----------------- | ------------------------------------------ | ---------------------------------------- |
 | Create worktree   | `git worktree add ../repo-feature feature` | `git gtr new feature`                    |
 | Create + open     | `git worktree add ... && cursor .`         | `git gtr new feature --editor`           |
+| Checkout PR       | `gh pr checkout 123`                       | `git gtr pr 123`                         |
 | Open in editor    | `cd ../repo-feature && cursor .`           | `git gtr editor feature`                 |
 | Start AI tool     | `cd ../repo-feature && claude`             | `git gtr ai feature`                     |
 | Copy config files | Manual copy/paste                          | Auto-copy via `gtr.copy.include`         |
@@ -166,6 +170,7 @@ git gtr new feature/auth                                                        
 git gtr new feature/implement-user-authentication-with-oauth2-integration --folder auth  # Custom folder name
 git gtr new feature-auth --name backend --force                                          # Same branch, custom name
 git gtr new my-feature --name descriptive-variant                                        # Optional: custom name without --force
+git gtr new agent-task --porcelain                                                       # Stable output for automation
 ```
 
 **Options:**
@@ -180,6 +185,41 @@ git gtr new my-feature --name descriptive-variant                               
 - `--force`: Allow same branch in multiple worktrees (**requires --name or --folder**)
 - `--name <suffix>`: Custom folder name suffix (optional, required with --force)
 - `--folder <name>`: Custom folder name (replaces default, useful for long branch names)
+- `--editor`, `-e`: Open in editor after creation
+- `--ai`, `-a`: Start AI tool after creation
+- `--yes`: Non-interactive mode
+- `--porcelain`: Emit stable `key<TAB>value` records (implies `--yes`; incompatible with `--editor` and `--ai`)
+
+On success, `--porcelain` writes exactly three records to stdout: `path`,
+`branch`, and `hook_status`. Progress messages and hook output are written to
+stderr. If a post-create hook fails, the command exits non-zero and emits no
+success records. See [AI agent usage](docs/agent-usage.md) for the format and
+recommended safety boundaries.
+
+### `git gtr pr <number|url|branch> [options]`
+
+Create a worktree from a GitHub pull request. Requires GitHub CLI (`gh`) for PR lookup.
+When supported, GTR delegates checkout to `gh pr checkout --worktree`; otherwise it
+uses a compatibility path that preserves configured Git remotes and protocols.
+The default local branch is the PR head branch so GitHub CLI can infer the PR from inside the worktree.
+
+```bash
+git gtr pr 123                         # Branch/folder from PR head branch
+git gtr pr 123 --branch review/fix     # Custom local branch
+git gtr pr 123 --folder review         # Custom folder name
+gtr pr 123 --cd                        # Create and cd with shell integration
+```
+
+**Options:**
+
+- `--branch <name>`, `-b`: Local branch name to use (default: PR head branch)
+- `--repo <repo>`, `-R`: Repository for `gh pr view`
+- `--remote <name>`: Override remote/repository used to fetch `refs/pull/<number>/head`
+- `--no-copy`: Skip file copying
+- `--no-hooks`: Skip post-create hooks
+- `--force`: Allow same branch in multiple worktrees (**requires --name or --folder**)
+- `--name <suffix>`: Custom folder name suffix
+- `--folder <name>`: Custom folder name
 - `--editor`, `-e`: Open in editor after creation
 - `--ai`, `-a`: Start AI tool after creation
 - `--yes`: Non-interactive mode
@@ -218,21 +258,22 @@ cd "$(git gtr go 1)"             # Navigate to main repo
 ```bash
 # Bash (add to ~/.bashrc)
 _gtr_init="${XDG_CACHE_HOME:-$HOME/.cache}/gtr/init-gtr.bash"
-[[ -f "$_gtr_init" ]] || eval "$(git gtr init bash)" || true
+[[ -f "$_gtr_init" ]] && head -n 1 "$_gtr_init" | grep -q ' init=6 ' || eval "$(git gtr init bash)" || true
 source "$_gtr_init" 2>/dev/null || true; unset _gtr_init
 
 # Zsh (add to ~/.zshrc)
 _gtr_init="${XDG_CACHE_HOME:-$HOME/.cache}/gtr/init-gtr.zsh"
-[[ -f "$_gtr_init" ]] || eval "$(git gtr init zsh)" || true
+[[ -f "$_gtr_init" ]] && head -n 1 "$_gtr_init" | grep -q ' init=6 ' || eval "$(git gtr init zsh)" || true
 source "$_gtr_init" 2>/dev/null || true; unset _gtr_init
 
 # Fish (add to ~/.config/fish/config.fish)
 set -l _gtr_init (test -n "$XDG_CACHE_HOME" && echo $XDG_CACHE_HOME || echo $HOME/.cache)/gtr/init-gtr.fish
-test -f "$_gtr_init"; or git gtr init fish >/dev/null 2>&1
+test -f "$_gtr_init"; and head -n 1 "$_gtr_init" | string match -q '* init=6 *'; or git gtr init fish >/dev/null 2>&1
 source "$_gtr_init" 2>/dev/null
 
 # Then navigate with:
 gtr new my-feature --cd  # Create and land in the new worktree
+gtr pr 123 --cd          # Create PR worktree and land in it
 gtr cd                # Interactive worktree picker (requires fzf)
 gtr cd my-feature
 gtr cd 1
@@ -321,27 +362,31 @@ git gtr config list                                # List all gtr config
 
 ### `git gtr clean [options]`
 
-Remove worktrees: clean up empty directories, or remove those with merged PRs/MRs.
+Remove worktrees: clean up empty directories, or remove those with merged or closed PRs/MRs.
 
 ```bash
 git gtr clean                                  # Remove empty worktree directories and prune
 git gtr clean --merged                         # Remove worktrees for merged PRs/MRs
-git gtr clean --merged --to main               # Only remove worktrees merged to main
+git gtr clean --closed                         # Remove worktrees for closed PRs/MRs
+git gtr clean --merged --closed --to main      # Remove worktrees for merged or closed PRs/MRs targeting main
 git gtr clean --merged --dry-run               # Preview which worktrees would be removed
 git gtr clean --merged --yes                   # Remove without confirmation prompts
-git gtr clean --merged --force                 # Force-clean merged, ignoring local changes
+git gtr clean --merged --force                 # Force-clean PR cleanup, ignoring local changes
 git gtr clean --merged --force --yes           # Force-clean and auto-confirm
 ```
 
 **Options:**
 
 - `--merged`: Remove worktrees whose branches have merged PRs/MRs (also deletes the branch)
-- `--to <ref>`: Limit `--merged` cleanup to PRs/MRs merged into the given base ref
+- `--closed`: Remove worktrees whose branches have closed PRs/MRs (also deletes the branch)
+- `--to <ref>`: Limit PR/MR cleanup to PRs/MRs targeting the given base ref
 - `--dry-run`, `-n`: Preview changes without removing
 - `--yes`, `-y`: Non-interactive mode (skip confirmation prompts)
 - `--force`, `-f`: Force removal even if worktree has uncommitted changes or untracked files
 
-**Note:** The `--merged` mode auto-detects your hosting provider (GitHub or GitLab) from the `origin` remote URL and requires the corresponding CLI tool (`gh` or `glab`) to be installed and authenticated. For self-hosted instances, set the provider explicitly: `git gtr config set gtr.provider gitlab`.
+**Note:** The `--merged`/`--closed` mode auto-detects your hosting provider (GitHub or GitLab) from the `origin` remote URL and requires the corresponding CLI tool (`gh` or `glab`) to be installed and authenticated. For self-hosted instances, set the provider explicitly: `git gtr config set gtr.provider gitlab`.
+
+**Note:** `clean` also detects registry entries that are locked but whose directories no longer exist (for example, a crashed agent session that deleted its worktree directory). `git worktree prune` skips locked entries by design, so these linger and keep their branches checked out. `clean` offers to unlock and prune them; `--force` or `--yes` confirms automatically.
 
 ### `git gtr trust`
 
@@ -386,7 +431,10 @@ git gtr config add gtr.copy.include "**/.env.example"
 # Run setup after creating worktrees
 git gtr config add gtr.hook.postCreate "npm install"
 
-# Re-source environment after gtr cd or gtr new --cd (runs in current shell)
+# Inherit sparse-checkout from the base worktree on Git 2.36+ (default: on)
+git gtr config set gtr.sparse.inherit true
+
+# Re-source environment after gtr cd, gtr new --cd, or gtr pr --cd (runs in current shell)
 git gtr config add gtr.hook.postCd "source ./vars.sh"
 
 # Disable color output (or use "always" to force it)
@@ -401,6 +449,7 @@ git gtr config set gtr.ui.color never
     include = **/.env.example
     exclude = **/.env
     includeDirs = node_modules
+    includeDirs = packages/*/generated
     excludeDirs = node_modules/.cache
 
 [hooks]
@@ -455,6 +504,15 @@ git gtr completion fish > ~/.config/fish/completions/git-gtr.fish
 Requires Git 2.17+ and Bash 3.2+.
 
 > For troubleshooting, platform-specific notes, and architecture details, see [docs/troubleshooting.md](docs/troubleshooting.md)
+
+## AI Agent Usage
+
+Shell-capable coding agents can use `git gtr` directly; a separate MCP server is
+not required. Use `git gtr new <branch> --porcelain` to create a worktree and
+reliably capture its path, then run the agent inside that directory.
+
+See [docs/agent-usage.md](docs/agent-usage.md) for a copy-paste `AGENTS.md`
+policy, output contract, and safe lifecycle examples.
 
 ## Advanced Usage
 

@@ -25,7 +25,7 @@ _git_gtr() {
 
   # If we're completing the first argument after 'git gtr'
   if [ "$cword" -eq 2 ]; then
-    COMPREPLY=($(compgen -W "new go run copy editor ai rm mv rename ls list clean doctor adapter config completion init trust help version" -- "$cur"))
+    COMPREPLY=($(compgen -W "new pr go run copy editor ai rm mv rename ls list clean doctor adapter config completion init trust help version" -- "$cur"))
     return 0
   fi
 
@@ -67,7 +67,7 @@ _git_gtr() {
       if [[ "$cur" == -* ]]; then
         COMPREPLY=($(compgen -W "--ai" -- "$cur"))
       elif [ "$prev" = "--ai" ]; then
-        COMPREPLY=($(compgen -W "aider auggie claude codex continue copilot cursor gemini none opencode" -- "$cur"))
+        COMPREPLY=($(compgen -W "aider auggie claude codex continue copilot cursor gemini kilo none opencode" -- "$cur"))
       else
         local branches all_options
         branches=$(git branch --format='%(refname:short)' 2>/dev/null || true)
@@ -82,7 +82,7 @@ _git_gtr() {
       ;;
     clean)
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--merged --to --yes -y --dry-run -n --force -f" -- "$cur"))
+        COMPREPLY=($(compgen -W "--merged --closed --to --yes -y --dry-run -n --force -f" -- "$cur"))
       fi
       ;;
     copy)
@@ -99,9 +99,14 @@ _git_gtr() {
     new)
       # Complete flags
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--from --from-current --remote --track --no-copy --no-fetch --no-hooks --force --name --folder --yes --editor -e --ai -a" -- "$cur"))
+        COMPREPLY=($(compgen -W "--from --from-current --remote --track --no-copy --no-fetch --no-hooks --sparse --no-sparse --force --name --folder --yes --porcelain --editor -e --ai -a" -- "$cur"))
       elif [ "$prev" = "--track" ]; then
         COMPREPLY=($(compgen -W "auto remote local none" -- "$cur"))
+      fi
+      ;;
+    pr)
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--branch -b --repo -R --remote --no-copy --no-hooks --force --name --folder --yes --editor -e --ai -a" -- "$cur"))
       fi
       ;;
     completion)
@@ -138,7 +143,7 @@ _git_gtr() {
             if [[ "$cur" == -* ]]; then
               COMPREPLY=($(compgen -W "--local --global --system" -- "$cur"))
             else
-              COMPREPLY=($(compgen -W "gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color" -- "$cur"))
+              COMPREPLY=($(compgen -W "gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.sparse.inherit gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color" -- "$cur"))
             fi
             ;;
           set|add|unset)
@@ -146,7 +151,7 @@ _git_gtr() {
             if [[ "$cur" == -* ]]; then
               COMPREPLY=($(compgen -W "--local --global" -- "$cur"))
             else
-              COMPREPLY=($(compgen -W "gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color" -- "$cur"))
+              COMPREPLY=($(compgen -W "gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.sparse.inherit gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color" -- "$cur"))
             fi
             ;;
         esac

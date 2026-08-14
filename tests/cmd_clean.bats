@@ -123,10 +123,10 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "cmd_clean rejects --to without --merged" {
+@test "cmd_clean rejects --to without PR state filter" {
   run cmd_clean --to main
   [ "$status" -eq 1 ]
-  [[ "$output" == *"--to can only be used with --merged"* ]]
+  [[ "$output" == *"--to can only be used with --merged or --closed"* ]]
 }
 
 @test "cmd_clean --merged --force removes dirty merged worktrees" {
@@ -185,6 +185,43 @@ teardown() {
   [ -d "$TEST_WORKTREES_DIR/merged-to-feature" ]
 }
 
+@test "cmd_clean --closed --to removes closed worktrees" {
+  create_test_worktree "closed-to-main"
+  create_test_worktree "closed-to-feature"
+
+  _clean_detect_provider() { printf "github"; }
+  ensure_provider_cli() { return 0; }
+  check_branch_closed() {
+    [ "$3" = "main" ] && [ "$2" = "closed-to-main" ]
+  }
+  run_hooks_in() { return 0; }
+  run_hooks() { return 0; }
+
+  run cmd_clean --closed --to main --yes
+  [ "$status" -eq 0 ]
+  [ ! -d "$TEST_WORKTREES_DIR/closed-to-main" ]
+  [ -d "$TEST_WORKTREES_DIR/closed-to-feature" ]
+}
+
+@test "cmd_clean --merged --closed removes merged OR closed worktrees" {
+  create_test_worktree "merged-match"
+  create_test_worktree "closed-match"
+  create_test_worktree "open-match"
+
+  _clean_detect_provider() { printf "github"; }
+  ensure_provider_cli() { return 0; }
+  check_branch_merged() { [ "$2" = "merged-match" ]; }
+  check_branch_closed() { [ "$2" = "closed-match" ]; }
+  run_hooks_in() { return 0; }
+  run_hooks() { return 0; }
+
+  run cmd_clean --merged --closed --yes --force --to main
+  [ "$status" -eq 0 ]
+  [ ! -d "$TEST_WORKTREES_DIR/merged-match" ]
+  [ ! -d "$TEST_WORKTREES_DIR/closed-match" ]
+  [ -d "$TEST_WORKTREES_DIR/open-match" ]
+}
+
 @test "cmd_clean passes current branch HEAD to merged check" {
   create_test_worktree "merged-tip"
   local branch_tip
@@ -201,18 +238,90 @@ teardown() {
   [ ! -d "$TEST_WORKTREES_DIR/merged-tip" ]
 }
 
-@test "cmd_clean does not log dirty skip for non-merged worktree" {
-  create_test_worktree "dirty-not-merged"
-  echo "dirty" > "$TEST_WORKTREES_DIR/dirty-not-merged/dirty.txt"
-  git -C "$TEST_WORKTREES_DIR/dirty-not-merged" add dirty.txt
+@test "cmd_clean skips dirty worktree before provider lookup" {
+  create_test_worktree "dirty-before-provider"
+  echo "dirty" > "$TEST_WORKTREES_DIR/dirty-before-provider/dirty.txt"
+  git -C "$TEST_WORKTREES_DIR/dirty-before-provider" add dirty.txt
+
+  _clean_detect_provider() { printf "github"; }
+  ensure_provider_cli() { return 0; }
+  check_branch_merged() { printf "provider lookup should not run"; return 1; }
+
+  run cmd_clean --merged --to main --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dirty-before-provider"* ]]
+  [[ "$output" != *"provider lookup should not run"* ]]
+}
+
+# ── Locked entries with missing directories (#180) ──────────────────────────
+
+# Create a locked worktree whose directory has been deleted out from under git
+# Usage: create_locked_phantom <branch>
+create_locked_phantom() {
+  local branch="$1"
+  create_test_worktree "$branch"
+  git -C "$TEST_REPO" worktree lock "$TEST_WORKTREES_DIR/$branch"
+  rm -rf "$TEST_WORKTREES_DIR/$branch"
+}
+
+@test "cmd_clean surfaces recovery hint for locked missing worktree when declined" {
+  create_locked_phantom "phantom-hint"
+
+  run cmd_clean < /dev/null
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Locked worktree entry with missing directory"* ]]
+  [[ "$output" == *"git worktree unlock"* ]]
+  # Entry stays registered without confirmation
+  git -C "$TEST_REPO" worktree list --porcelain | grep -q "phantom-hint"
+}
+
+@test "cmd_clean --force unlocks and prunes locked missing worktree" {
+  create_locked_phantom "phantom-force"
+
+  run cmd_clean --force
+  [ "$status" -eq 0 ]
+  ! git -C "$TEST_REPO" worktree list --porcelain | grep -q "phantom-force"
+  # Branch is no longer held by the phantom worktree
+  git -C "$TEST_REPO" branch -D phantom-force
+}
+
+@test "cmd_clean --yes unlocks and prunes locked missing worktree" {
+  create_locked_phantom "phantom-yes"
+
+  run cmd_clean --yes
+  [ "$status" -eq 0 ]
+  ! git -C "$TEST_REPO" worktree list --porcelain | grep -q "phantom-yes"
+}
+
+@test "cmd_clean --dry-run reports locked missing worktree without changes" {
+  create_locked_phantom "phantom-dry"
+
+  run cmd_clean --dry-run --force
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[dry-run] Would unlock and prune"* ]]
+  git -C "$TEST_REPO" worktree list --porcelain | grep -q "phantom-dry"
+}
+
+@test "cmd_clean --force keeps locked worktree whose directory exists" {
+  create_test_worktree "locked-alive"
+  git -C "$TEST_REPO" worktree lock "$TEST_WORKTREES_DIR/locked-alive"
+
+  run cmd_clean --force --yes
+  [ "$status" -eq 0 ]
+  [ -d "$TEST_WORKTREES_DIR/locked-alive" ]
+  git -C "$TEST_REPO" worktree list --porcelain | grep -q "locked-alive"
+}
+
+@test "cmd_clean --merged recovers locked missing worktree before merged pass" {
+  create_locked_phantom "phantom-merged"
 
   _clean_detect_provider() { printf "github"; }
   ensure_provider_cli() { return 0; }
   check_branch_merged() { return 1; }
 
-  run cmd_clean --merged --to main --yes
+  run cmd_clean --merged --force --yes
   [ "$status" -eq 0 ]
-  [[ "$output" != *"dirty-not-merged"* ]]
+  ! git -C "$TEST_REPO" worktree list --porcelain | grep -q "phantom-merged"
 }
 
 @test "cmd_clean --merged --force skips the current active worktree" {

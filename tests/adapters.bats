@@ -103,7 +103,7 @@ teardown() {
   local entry
   entry=$(_registry_lookup "$_EDITOR_REGISTRY" "antigravity")
   _load_from_editor_registry "$entry"
-  [ "$_EDITOR_CMD" = "agy" ]
+  [ "$_EDITOR_CMD" = "antigravity" ]
   [ "$_EDITOR_WORKSPACE" -eq 1 ]
   [ "$_EDITOR_DOT" -eq 1 ]
 }
