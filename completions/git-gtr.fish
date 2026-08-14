@@ -35,6 +35,7 @@ end
 
 # Commands
 complete -f -c git -n '__fish_git_gtr_needs_command' -a new -d 'Create a new worktree'
+complete -f -c git -n '__fish_git_gtr_needs_command' -a pr -d 'Create a pull request worktree'
 complete -f -c git -n '__fish_git_gtr_needs_command' -a go -d 'Navigate to worktree'
 complete -f -c git -n '__fish_git_gtr_needs_command' -a run -d 'Execute command in worktree'
 complete -f -c git -n '__fish_git_gtr_needs_command' -a rm -d 'Remove worktree(s)'
@@ -66,12 +67,28 @@ complete -c git -n '__fish_git_gtr_using_command new' -l track -d 'Track mode' -
 complete -c git -n '__fish_git_gtr_using_command new' -l no-copy -d 'Skip file copying'
 complete -c git -n '__fish_git_gtr_using_command new' -l no-fetch -d 'Skip git fetch'
 complete -c git -n '__fish_git_gtr_using_command new' -l no-hooks -d 'Skip post-create hooks'
+complete -c git -n '__fish_git_gtr_using_command new' -l sparse -d 'Inherit sparse-checkout from base worktree (Git 2.36+)'
+complete -c git -n '__fish_git_gtr_using_command new' -l no-sparse -d 'Force a full checkout'
 complete -c git -n '__fish_git_gtr_using_command new' -l force -d 'Allow same branch in multiple worktrees'
 complete -c git -n '__fish_git_gtr_using_command new' -l name -d 'Custom folder name suffix' -r
 complete -c git -n '__fish_git_gtr_using_command new' -l folder -d 'Custom folder name (replaces default)' -r
 complete -c git -n '__fish_git_gtr_using_command new' -l yes -d 'Non-interactive mode'
+complete -c git -n '__fish_git_gtr_using_command new' -l porcelain -d 'Machine-readable output'
 complete -c git -n '__fish_git_gtr_using_command new' -s e -l editor -d 'Open in editor after creation'
 complete -c git -n '__fish_git_gtr_using_command new' -s a -l ai -d 'Start AI tool after creation'
+
+# Pull request command options
+complete -c git -n '__fish_git_gtr_using_command pr' -s b -l branch -d 'Local branch name' -r
+complete -c git -n '__fish_git_gtr_using_command pr' -s R -l repo -d 'GitHub repository' -r
+complete -c git -n '__fish_git_gtr_using_command pr' -l remote -d 'Remote used to fetch PR ref' -r
+complete -c git -n '__fish_git_gtr_using_command pr' -l no-copy -d 'Skip file copying'
+complete -c git -n '__fish_git_gtr_using_command pr' -l no-hooks -d 'Skip post-create hooks'
+complete -c git -n '__fish_git_gtr_using_command pr' -l force -d 'Allow same branch in multiple worktrees'
+complete -c git -n '__fish_git_gtr_using_command pr' -l name -d 'Custom folder name suffix' -r
+complete -c git -n '__fish_git_gtr_using_command pr' -l folder -d 'Custom folder name (replaces default)' -r
+complete -c git -n '__fish_git_gtr_using_command pr' -l yes -d 'Non-interactive mode'
+complete -c git -n '__fish_git_gtr_using_command pr' -s e -l editor -d 'Open in editor after creation'
+complete -c git -n '__fish_git_gtr_using_command pr' -s a -l ai -d 'Start AI tool after creation'
 
 # Remove command options
 complete -c git -n '__fish_git_gtr_using_command rm' -l delete-branch -d 'Delete branch'
@@ -101,7 +118,8 @@ complete -c git -n '__fish_git_gtr_using_command ai' -l ai -d 'AI tool to use' -
 
 # Clean command options
 complete -c git -n '__fish_git_gtr_using_command clean' -l merged -d 'Remove worktrees with merged PRs/MRs'
-complete -c git -n '__fish_git_gtr_using_command clean' -l to -d 'Only remove worktrees for PRs/MRs merged into this ref' -r
+complete -c git -n '__fish_git_gtr_using_command clean' -l closed -d 'Remove worktrees with closed PRs/MRs'
+complete -c git -n '__fish_git_gtr_using_command clean' -l to -d 'Only remove worktrees for PRs/MRs targeting this ref' -r
 complete -c git -n '__fish_git_gtr_using_command clean' -l yes -d 'Skip confirmation prompts'
 complete -c git -n '__fish_git_gtr_using_command clean' -s y -d 'Skip confirmation prompts'
 complete -c git -n '__fish_git_gtr_using_command clean' -l dry-run -d 'Show what would be removed'
@@ -142,6 +160,7 @@ complete -f -c git -n '__fish_git_gtr_using_command config' -a "
   gtr.ai.default	'Default AI tool'
   gtr.worktrees.dir	'Worktrees base directory'
   gtr.worktrees.prefix	'Worktree folder prefix'
+  gtr.sparse.inherit	'gtr.sparse.inherit'
   gtr.defaultBranch	'Default branch'
   gtr.defaultRemote	'Default remote'
   gtr.provider	'Hosting provider (github, gitlab)'

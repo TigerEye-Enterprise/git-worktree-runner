@@ -29,6 +29,7 @@ _git-gtr() {
   local -a commands
   commands=(
     'new:Create a new worktree'
+    'pr:Create a pull request worktree'
     'go:Navigate to worktree'
     'run:Execute command in worktree'
     'copy:Copy files between worktrees'
@@ -67,6 +68,31 @@ _git-gtr() {
       '--no-copy[Skip file copying]' \
       '--no-fetch[Skip git fetch]' \
       '--no-hooks[Skip post-create hooks]' \
+      '--sparse[Inherit sparse-checkout from base worktree (Git 2.36+)]' \
+      '--no-sparse[Force a full checkout]' \
+      '--force[Allow same branch in multiple worktrees]' \
+      '--name[Custom folder name suffix]:name:' \
+      '--folder[Custom folder name (replaces default)]:folder:' \
+      '--yes[Non-interactive mode]' \
+      '--porcelain[Machine-readable output]' \
+      '--editor[Open in editor after creation]' \
+      '-e[Open in editor after creation]' \
+      '--ai[Start AI tool after creation]' \
+      '-a[Start AI tool after creation]'
+    return
+  fi
+
+  # Early handler for `pr` command
+  if (( CURRENT >= 4 )) && [[ $words[3] == pr ]]; then
+    _arguments \
+      '1:pull request:' \
+      '--branch[Local branch name]:branch:' \
+      '-b[Local branch name]:branch:' \
+      '--repo[GitHub repository]:repo:' \
+      '-R[GitHub repository]:repo:' \
+      '--remote[Remote used to fetch PR ref]:remote:' \
+      '--no-copy[Skip file copying]' \
+      '--no-hooks[Skip post-create hooks]' \
       '--force[Allow same branch in multiple worktrees]' \
       '--name[Custom folder name suffix]:name:' \
       '--folder[Custom folder name (replaces default)]:folder:' \
@@ -82,7 +108,8 @@ _git-gtr() {
   if (( CURRENT >= 4 )) && [[ $words[3] == clean ]]; then
     _arguments \
       '--merged[Remove worktrees with merged PRs/MRs]' \
-      '--to[Only remove worktrees for PRs/MRs merged into this ref]:ref:' \
+      '--closed[Remove worktrees with closed PRs/MRs]' \
+      '--to[Only remove worktrees for PRs/MRs targeting this ref]:ref:' \
       '--yes[Skip confirmation prompts]' \
       '-y[Skip confirmation prompts]' \
       '--dry-run[Show what would be removed]' \
@@ -186,7 +213,7 @@ _git-gtr() {
                 '--local[Use local git config]' \
                 '--global[Use global git config]' \
                 '--system[Use system git config]' \
-                '*:config key:(gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color)'
+                '*:config key:(gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.sparse.inherit gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color)'
               ;;
             set|add|unset)
               # Write operations only support --local and --global
@@ -194,7 +221,7 @@ _git-gtr() {
               _arguments \
                 '--local[Use local git config]' \
                 '--global[Use global git config]' \
-                '*:config key:(gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color)'
+                '*:config key:(gtr.copy.include gtr.copy.exclude gtr.copy.includeDirs gtr.copy.excludeDirs gtr.hook.postCreate gtr.hook.preRemove gtr.hook.postRemove gtr.hook.postCd gtr.editor.default gtr.editor.workspace gtr.ai.default gtr.worktrees.dir gtr.worktrees.prefix gtr.sparse.inherit gtr.defaultBranch gtr.defaultRemote gtr.provider gtr.ui.color)'
               ;;
           esac
         fi

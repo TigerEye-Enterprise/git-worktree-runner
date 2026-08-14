@@ -84,8 +84,31 @@ _create_resolve_from_ref() {
 
   printf "%s" "$from_ref"
 }
+
+# Print a stable, escaped record stream for scripting and agent integrations.
+# Format: key<tab>value, one record per line.
+_create_print_porcelain() {
+  local worktree_path="$1" branch_name="$2" hook_status="$3"
+  printf "path\t%s\n" "$(_tsv_escape_field "$worktree_path")"
+  printf "branch\t%s\n" "$(_tsv_escape_field "$branch_name")"
+  printf "hook_status\t%s\n" "$hook_status"
+}
+
+# Detect machine mode before parsing so all incidental stdout, including hook
+# output, can be redirected away from the stable record stream.
+_create_wants_porcelain() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --porcelain) return 0 ;;
+      --) return 1 ;;
+    esac
+  done
+  return 1
+}
+
 # shellcheck disable=SC2154  # _arg_* _pa_* set by parse_args, _ctx_* set by resolve_*
-cmd_create() {
+_cmd_create_impl() {
   local _spec
   _spec="--from: value
 --from-current
@@ -94,10 +117,13 @@ cmd_create() {
 --no-copy
 --no-fetch
 --no-hooks
+--sparse
+--no-sparse
 --yes
 --force
 --name: value
 --folder: value
+--porcelain
 --editor|-e
 --ai|-a"
   parse_args "$_spec" "$@"
@@ -110,12 +136,23 @@ cmd_create() {
   local skip_copy="${_arg_no_copy:-0}"
   local skip_fetch="${_arg_no_fetch:-0}"
   local skip_hooks="${_arg_no_hooks:-0}"
+  local sparse_flag="${_arg_sparse:-0}"
+  local no_sparse_flag="${_arg_no_sparse:-0}"
   local yes_mode="${_arg_yes:-0}"
   local force="${_arg_force:-0}"
   local custom_name="${_arg_name:-}"
   local folder_override="${_arg_folder:-}"
+  local porcelain="${_arg_porcelain:-0}"
   local open_editor="${_arg_editor:-0}"
   local start_ai="${_arg_ai:-0}"
+
+  if [ "$porcelain" -eq 1 ]; then
+    yes_mode=1
+    if [ "$open_editor" -eq 1 ] || [ "$start_ai" -eq 1 ]; then
+      log_error "--porcelain cannot be combined with --editor or --ai"
+      exit 1
+    fi
+  fi
 
   # Validate flag combinations
   if [ -n "$folder_override" ] && [ -n "$custom_name" ]; then
@@ -156,15 +193,44 @@ cmd_create() {
   # Determine from_ref with precedence: --from > --from-current > default
   from_ref=$(_create_resolve_from_ref "$from_ref" "$from_current" "$repo_root" "$remote")
 
+  # Decide whether to inherit sparse-checkout from the base worktree.
+  # Precedence: --no-sparse > --sparse > gtr.sparse.inherit (default on).
+  local sparse_inherit=0 native_sparse_supported=0
+  _git_supports_sparse_inheritance && native_sparse_supported=1
+  if [ "$no_sparse_flag" -eq 1 ]; then
+    sparse_inherit=0
+  elif [ "$sparse_flag" -eq 1 ]; then
+    sparse_inherit=1
+  elif [ "$native_sparse_supported" -eq 1 ] && cfg_bool gtr.sparse.inherit true; then
+    sparse_inherit=1
+  fi
+
+  local sparse_source="" no_checkout=0
+  if [ "$sparse_inherit" -eq 1 ]; then
+    if [ "$native_sparse_supported" -eq 1 ]; then
+      sparse_source=$(_resolve_sparse_source "$from_ref")
+    elif [ "$sparse_flag" -eq 1 ]; then
+      log_warn "Sparse-checkout inheritance requires Git 2.36+ — creating a full checkout"
+    fi
+    if [ -z "$sparse_source" ] && [ "$sparse_flag" -eq 1 ] && [ "$native_sparse_supported" -eq 1 ]; then
+      log_warn "No sparse-checkout source found for '$from_ref' — creating a full checkout"
+    fi
+  fi
+
+  # Git 2.36+ copies the caller's sparse settings during worktree add. Defer
+  # checkout only when a sparse caller must produce a full checkout; ordinary
+  # dense creation keeps the existing one-step path.
+  local current_worktree=""
+  if [ -z "$sparse_source" ] && [ "$native_sparse_supported" -eq 1 ]; then
+    current_worktree=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if _worktree_sparse_enabled "$current_worktree"; then
+      no_checkout=1
+    fi
+  fi
+
   # Construct folder name for display
   local folder_name
-  if [ -n "$folder_override" ]; then
-    folder_name=$(sanitize_branch_name "$folder_override")
-  elif [ -n "$custom_name" ]; then
-    folder_name="$(sanitize_branch_name "$branch_name")-${custom_name}"
-  else
-    folder_name=$(sanitize_branch_name "$branch_name")
-  fi
+  folder_name=$(_resolve_folder_name "$branch_name" "$custom_name" "$folder_override") || exit 1
 
   log_step "Creating worktree: $folder_name"
   echo "Location: $base_dir/${prefix}${folder_name}"
@@ -172,7 +238,24 @@ cmd_create() {
 
   # Create the worktree
   local worktree_path
-  if ! worktree_path=$(create_worktree "$base_dir" "$prefix" "$branch_name" "$from_ref" "$track_mode" "$skip_fetch" "$force" "$custom_name" "$folder_override" "$remote"); then
+  # Only `git worktree add` uses sparse_source as its context; fetch and branch
+  # resolution retain the caller's repository configuration.
+  if ! worktree_path=$(create_worktree "$base_dir" "$prefix" "$branch_name" "$from_ref" "$track_mode" "$skip_fetch" "$force" "$custom_name" "$folder_override" "$remote" "$no_checkout" "$sparse_source"); then
+    exit 1
+  fi
+
+  if [ -n "$sparse_source" ]; then
+    if _worktree_is_sparse "$worktree_path"; then
+      log_info "Inherited sparse-checkout from $sparse_source"
+    else
+      log_warn "Sparse-checkout inheritance was not applied — falling back to a full checkout"
+      if ! _ensure_full_checkout "$worktree_path" 1; then
+        log_error "Could not populate worktree at $worktree_path"
+        exit 1
+      fi
+    fi
+  elif [ "$no_checkout" -eq 1 ] && ! _ensure_full_checkout "$worktree_path" 1; then
+    log_error "Could not populate full worktree at $worktree_path"
     exit 1
   fi
 
@@ -182,20 +265,37 @@ cmd_create() {
   fi
 
   # Run post-create hooks (unless --no-hooks)
+  local hook_status="disabled"
   if [ "$skip_hooks" -eq 0 ]; then
-    run_hooks_in postCreate "$worktree_path" \
+    hook_status=$(_hooks_phase_status postCreate)
+    if ! run_hooks_in postCreate "$worktree_path" \
       REPO_ROOT="$repo_root" \
       WORKTREE_PATH="$worktree_path" \
-      BRANCH="$branch_name"
+      BRANCH="$branch_name"; then
+      exit 1
+    fi
   fi
 
   echo ""
   log_info "Worktree created: $worktree_path"
+
+  if [ "$porcelain" -eq 1 ]; then
+    _create_print_porcelain "$worktree_path" "$branch_name" "$hook_status" >&3
+    return 0
+  fi
 
   # Auto-launch editor/AI or show next steps
   [ "$open_editor" -eq 1 ] && { _auto_launch_editor "$worktree_path" || true; }
   [ "$start_ai" -eq 1 ] && { _auto_launch_ai "$worktree_path" "$repo_root" "$branch_name" || true; }
   if [ "$open_editor" -eq 0 ] && [ "$start_ai" -eq 0 ]; then
     _post_create_next_steps "$branch_name" "$folder_name" "$folder_override" "$repo_root" "$base_dir" "$prefix"
+  fi
+}
+
+cmd_create() {
+  if _create_wants_porcelain "$@"; then
+    _cmd_create_impl "$@" 3>&1 1>&2
+  else
+    _cmd_create_impl "$@"
   fi
 }

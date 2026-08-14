@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-08-12
+
+### Added
+
+- `git gtr new --porcelain` emits stable worktree path, branch, and hook-status records for shell automation and coding agents, with incidental output isolated on stderr.
+- Agent integration guidance documents the machine-readable contract and recommended trust and cleanup boundaries.
+
+## [2.9.0] - 2026-08-12
+
+### Added
+
+- `git gtr pr <number|url|branch>` creates GitHub pull request worktrees with GTR-managed paths, copy and hook automation, editor/AI launch options, and shell `--cd` integration; newer GitHub CLI versions use native worktree checkout while older versions retain a compatible fallback ([#187](https://github.com/coderabbitai/git-worktree-runner/pull/187))
+- `git gtr new` now inherits sparse-checkout configuration from the selected base worktree on Git 2.36+, with `--sparse`, `--no-sparse`, and `gtr.sparse.inherit` controls ([#186](https://github.com/coderabbitai/git-worktree-runner/pull/186))
+
+### Changed
+
+- Fork pull requests now run ShellCheck, completion verification, and BATS with a least-privilege, non-persisted workflow token after maintainer approval ([#185](https://github.com/coderabbitai/git-worktree-runner/pull/185))
+
+## [2.8.2] - 2026-08-12
+
+### Fixed
+
+- `gtr.copy.includeDirs` now resolves literal paths without full-repository scans, batches unavoidable recursive discovery, and reuses results across `git gtr copy --all` targets while preserving nested basename matching ([#191](https://github.com/coderabbitai/git-worktree-runner/pull/191))
+
+## [2.8.1] - 2026-08-12
+
+### Fixed
+
+- `git gtr rm` now returns a non-zero exit status when any requested worktree cannot be resolved or removed, or when a pre-remove hook blocks removal, while still processing later targets ([#190](https://github.com/coderabbitai/git-worktree-runner/pull/190))
+
+## [2.8.0] - 2026-06-12
+
+### Added
+
+- `git gtr clean --closed` to remove worktrees whose PRs/MRs were closed without merging; combine with `--merged` to match either state, and `--to <ref>` now filters both modes by target base ref ([#183](https://github.com/coderabbitai/git-worktree-runner/pull/183))
+
+### Fixed
+
+- `git gtr clean` now detects registry entries that are locked but whose directories no longer exist and offers to unlock and prune them ([#182](https://github.com/coderabbitai/git-worktree-runner/pull/182))
+- GitLab MR branch-tip matching now validates head SHAs structurally instead of substring matching, preventing false matches on unrelated JSON fields ([#183](https://github.com/coderabbitai/git-worktree-runner/pull/183))
+
 ## [2.7.3] - 2026-05-05
 
 ### Fixed
@@ -223,7 +264,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 - Improved base directory resolution logic to distinguish `.` (repo root), `./path` (repo-internal) from other relative values (sibling directories)
 
-[Unreleased]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.7.3...HEAD
+[Unreleased]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.9.0...v2.10.0
+[2.8.1]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.8.0...v2.8.1
+[2.8.0]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.7.3...v2.8.0
 [2.7.3]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.7.2...v2.7.3
 [2.7.2]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.7.1...v2.7.2
 [2.7.1]: https://github.com/coderabbitai/git-worktree-runner/compare/v2.7.0...v2.7.1
