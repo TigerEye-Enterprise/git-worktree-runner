@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-08-19
+
 ### Added
 
 - Antigravity's terminal agent is available as the `antigravity` AI adapter, while other safe agent commands continue to work through the generic `PATH` fallback.
