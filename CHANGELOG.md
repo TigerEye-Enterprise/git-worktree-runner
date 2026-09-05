@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-08-19
+
+### Added
+
+- Antigravity's terminal agent is available as the `antigravity` AI adapter, while other safe agent commands continue to work through the generic `PATH` fallback.
+
+### Changed
+
+- Antigravity editor launches now use the current `agy-ide` command, and the Cursor AI adapter prefers the current `agent` command while retaining legacy fallbacks.
+- Editor and AI documentation now uses current installation commands and labels retired or unmaintained integrations as legacy compatibility.
+- The README now leads with PR review and coding-agent workflows, surfaces agent automation earlier, and documents the complete configuration precedence.
+
+### TigerEye fork divergence
+
+- The `antigravity` EDITOR adapter uses `agy`, not upstream's `agy-ide`. Measured on the
+  TigerEye dev host: `agy` resolves (`~/AppData/Local/agy/bin/agy`) while neither
+  `agy-ide` nor `antigravity` exists, so upstream's value would leave the adapter
+  broken here. Revisit when the Antigravity CLI ships `agy-ide` on our hosts.
+- A `kilo` AI adapter is added for Kilo Code, an authorized TigerEye compute platform
+  that upstream does not carry.
+- `.gitattributes` pins `eol=lf` across `*.sh`, `bin/*`, `completions/*`, `lib/*` and
+  `adapters/**/*.sh`. TigerEye develops on Windows, where a CRLF checkout makes bash
+  fail with `set: pipefail: invalid option name`.
+
 ## [2.10.0] - 2026-08-12
 
 ### Added
