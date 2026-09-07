@@ -52,7 +52,8 @@ teardown() {
 EOF
 
   local expected
-  expected="$(git config -f "$TEST_REPO/.gtrconfig" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+  # Legacy SHA-256 of "hooks.postcd echo hi\n", independent of installed tools.
+  expected="ae6e0fecf5334026ed93892641372c5ae5685b8795f8d44b097474514363804d"
 
   [ "$(_hooks_file_hash "$TEST_REPO/.gtrconfig")" = "$expected" ]
 }
@@ -64,7 +65,8 @@ EOF
 EOF
 
   local expected
-  expected="$(git config -f "$TEST_REPO/.gtrconfig" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+  # Legacy SHA-256 of the defaults.ai definition, including its final newline.
+  expected="10b5ecd698b5cd9ced0c52ec5808f03d3a4578ae9f566e5f02cce95287abcfc1"
 
   [ "$(_hooks_file_hash "$TEST_REPO/.gtrconfig")" = "$expected" ]
 }
