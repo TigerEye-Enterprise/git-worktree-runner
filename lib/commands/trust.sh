@@ -41,7 +41,10 @@ cmd_trust() {
   if prompt_yes_no "Trust these commands?"; then
     if _hooks_write_trust_marker "$trust_path" "$config_file"; then
       local current_trust_path
-      current_trust_path=$(_hooks_current_trust_path "$config_file") || true
+      current_trust_path=$(_hooks_current_trust_path "$config_file") || {
+        log_error "Failed to verify current executable commands after writing trust marker"
+        return 1
+      }
       if [ -n "$current_trust_path" ] && [ "$current_trust_path" != "$trust_path" ]; then
         log_warn "Executable commands changed during review; current commands remain untrusted"
         return 1

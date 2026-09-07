@@ -29,7 +29,33 @@ _hooks_read_definitions() {
 _hooks_content_hash() {
   local hook_content="$1"
   [ -n "$hook_content" ] || return 1
-  printf '%s\n' "$hook_content" | shasum -a 256 | cut -d' ' -f1
+  printf '%s\n' "$hook_content" | _hooks_sha256
+}
+
+# Hash stdin without masking a failed executable behind an output parser.
+# Explicit checks also apply when callers suppress errexit (e.g. trust checks).
+_hooks_sha256() {
+  local output digest
+  local -a hasher
+  if command -v shasum >/dev/null 2>&1; then
+    hasher=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hasher=(sha256sum)
+  else
+    log_error "Cannot compute trust hash: shasum or sha256sum is required"
+    return 1
+  fi
+
+  output=$("${hasher[@]}") || {
+    log_error "Failed to compute trust hash with ${hasher[0]}"
+    return 1
+  }
+  digest=${output%%[[:space:]]*}
+  if [ "${#digest}" -ne 64 ] || [[ "$digest" == *[!0-9a-f]* ]]; then
+    log_error "Invalid SHA-256 trust hash from ${hasher[0]}"
+    return 1
+  fi
+  printf '%s\n' "$digest"
 }
 
 # Compute a content hash of all current trusted command entries in a .gtrconfig file.
@@ -73,7 +99,7 @@ _hooks_reviewed_trust_key() {
   local hash repo_root
   hash=$(_hooks_content_hash "$hook_content") || return 1
   repo_root=$(_hooks_repo_root "$config_file") || return 1
-  printf '%s\n%s\n' "$repo_root" "$hash" | shasum -a 256 | cut -d' ' -f1
+  printf '%s\n%s\n' "$repo_root" "$hash" | _hooks_sha256
 }
 
 # Compute the repo-scoped trust key for the current trusted command content
