@@ -137,6 +137,24 @@ _init_emit_posix_trust_helpers() {
 
   # Keep case patterns balanced inside this substitution for Bash 3.2's parser.
   template=$(cat <<'EOF'
+__FUNC___sha256() {
+__SHELL_PRELUDE__
+  local _gtr_digest
+  if command -v shasum >/dev/null 2>&1; then
+    _gtr_digest="$(shasum -a 256)" || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    _gtr_digest="$(sha256sum)" || return 1
+  else
+    return 1
+  fi
+  _gtr_digest="${_gtr_digest%%[[:space:]]*}"
+  case "$_gtr_digest" in
+    (*[!0-9a-f]*|'') return 1 ;;
+  esac
+  [ "${#_gtr_digest}" -eq 64 ] || return 1
+  printf '%s\n' "$_gtr_digest"
+}
+
 __FUNC___gtrconfig_path() {
 __SHELL_PRELUDE__
   local _gtr_git_common_dir _gtr_repo_root
@@ -159,7 +177,7 @@ __SHELL_PRELUDE__
     _gtr_hook_defs="$(__FUNC___hooks_read_definitions "$_gtr_config_file")" || return 1
   fi
   [ -n "$_gtr_hook_defs" ] || return 1
-  printf '%s\n' "$_gtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
+  printf '%s\n' "$_gtr_hook_defs" | __FUNC___sha256
 }
 
 __FUNC___hooks_repo_root() {
@@ -203,7 +221,7 @@ __SHELL_PRELUDE__
   _gtr_hook_hash="$(__FUNC___hooks_current_content_hash "$_gtr_config_file" "$_gtr_definitions" 2>/dev/null)" || return 1
   _gtr_repo_root="$(__FUNC___hooks_repo_root "$_gtr_config_file" 2>/dev/null)" || return 1
   _gtr_repo_identity="$(__FUNC___hooks_repo_identity "$_gtr_repo_root" 2>/dev/null)" || return 1
-  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | __FUNC___sha256
 }
 
 __FUNC___hooks_marker_matches_config() {

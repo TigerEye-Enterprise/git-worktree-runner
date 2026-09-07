@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ### Fixed
 
+- TigerEye fork: trust hashing falls back to `sha256sum` when `shasum` is absent (Git for Windows ships only `sha256sum`) and fails closed on a missing, failing or malformed hasher, in the CLI (`lib/hooks.sh`) and the POSIX shell integration (`lib/commands/init.sh`). The fish integration still requires `shasum`.
+
 - The integration test helper now canonicalizes its temporary repository path. On macOS `mktemp -d` returns a `/var` path while git records the resolved `/private/var` one, so `cmd_clean --merged uses nested registered worktree path` compared two spellings of the same directory and failed locally while passing in CI.
 
 ## [2.11.1] - 2026-09-14

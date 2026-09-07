@@ -52,7 +52,7 @@ teardown() {
 EOF
 
   local expected
-  expected="$(git config -f "$TEST_REPO/.gtrconfig" -z --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n' | { encoded=$(cat); printf '%s\n' "$encoded"; } | shasum -a 256 | cut -d' ' -f1)"
+  expected="$(git config -f "$TEST_REPO/.gtrconfig" -z --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n' | { encoded=$(cat); printf '%s\n' "$encoded"; } | _hooks_sha256)"
 
   [ "$(_hooks_file_hash "$TEST_REPO/.gtrconfig")" = "$expected" ]
 }
@@ -64,7 +64,7 @@ EOF
 EOF
 
   local expected
-  expected="$(git config -f "$TEST_REPO/.gtrconfig" -z --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n' | { encoded=$(cat); printf '%s\n' "$encoded"; } | shasum -a 256 | cut -d' ' -f1)"
+  expected="$(git config -f "$TEST_REPO/.gtrconfig" -z --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n' | { encoded=$(cat); printf '%s\n' "$encoded"; } | _hooks_sha256)"
 
   [ "$(_hooks_file_hash "$TEST_REPO/.gtrconfig")" = "$expected" ]
 }
