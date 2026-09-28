@@ -18,11 +18,11 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Commands](#commands)
-- [AI Agent Usage](#ai-agent-usage)
 - [Configuration](#configuration)
 - [Shell Completions](#shell-completions-optional)
 - [Platform Support](#platform-support)
 - [Contributing](#contributing)
+- [Maintainers](#maintainers)
 - [License](#license)
 
 ---
@@ -194,6 +194,8 @@ git gtr new agent-task --porcelain                                              
 - `--no-copy`: Skip file copying
 - `--no-fetch`: Skip git fetch
 - `--no-hooks`: Skip post-create hooks
+- `--sparse`: Inherit sparse-checkout from the base worktree (Git 2.36+; overrides `gtr.sparse.inherit = false`)
+- `--no-sparse`: Force a full checkout even when `gtr.sparse.inherit` is on
 - `--force`: Allow same branch in multiple worktrees (**requires --name or --folder**)
 - `--name <suffix>`: Custom folder name suffix (optional, required with --force)
 - `--folder <name>`: Custom folder name (replaces default, useful for long branch names)
@@ -520,15 +522,6 @@ Requires Git 2.17+ and Bash 3.2+.
 
 > For troubleshooting, platform-specific notes, and architecture details, see [docs/troubleshooting.md](docs/troubleshooting.md)
 
-## AI Agent Usage
-
-Shell-capable coding agents can use `git gtr` directly; a separate MCP server is
-not required. Use `git gtr new <branch> --porcelain` to create a worktree and
-reliably capture its path, then run the agent inside that directory.
-
-See [docs/agent-usage.md](docs/agent-usage.md) for a copy-paste `AGENTS.md`
-policy, output contract, and safe lifecycle examples.
-
 ## Advanced Usage
 
 For advanced workflows including:
@@ -551,6 +544,15 @@ Contributions welcome! Areas where help is appreciated:
 - **Documentation** - Tutorials, examples, use cases
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards.
+
+## Maintainers
+
+gtr was created and is maintained by [@helizaga](https://github.com/helizaga).
+
+Much of what gtr supports today came from outside contributors - editor and AI tool adapters, platform
+fixes, shell integrations, and documentation. See the
+[contributor list](https://github.com/coderabbitai/git-worktree-runner/graphs/contributors) for everyone
+who has shipped something here.
 
 ## License
 

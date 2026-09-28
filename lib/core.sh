@@ -211,25 +211,16 @@ _emit_worktree_record() {
   local wt_detached="$4"
   local wt_locked="$5"
   local wt_prunable="$6"
-  local is_main_hint="${7:-0}"
 
   [ -z "$wt_path" ] && return 0
 
-  local is_main=0 branch="$wt_branch" status="ok"
-  # `git worktree list` emits the main worktree first.  Use that stable
-  # ordering rather than resolving every registered path, which is costly on
-  # Windows repositories with many linked worktrees.
-  if [ "$is_main_hint" -eq 1 ]; then
+  local is_main=0 branch="$wt_branch" status wt_path_canonical
+  wt_path_canonical=$(canonicalize_path "$wt_path" || printf "%s" "$wt_path")
+  if [ "$wt_path" = "$repo_root" ] || [ "$wt_path_canonical" = "$repo_root" ]; then
     is_main=1
   fi
   [ -z "$branch" ] && branch="(detached)"
-  if [ "$wt_locked" -eq 1 ]; then
-    status="locked"
-  elif [ "$wt_prunable" -eq 1 ]; then
-    status="prunable"
-  elif [ "$wt_detached" -eq 1 ]; then
-    status="detached"
-  fi
+  status=$(_worktree_record_status "$wt_detached" "$wt_locked" "$wt_prunable")
 
   printf "is_main %s\n" "$is_main"
   printf "path %s\n" "$(_tsv_escape_field "$wt_path")"
@@ -240,16 +231,13 @@ _emit_worktree_record() {
 _parse_worktree_records() {
   local repo_root_canonical="$1"
   local delimiter="$2"
-  local wt_path="" wt_branch="" wt_detached=0 wt_locked=0 wt_prunable=0 record_index=0 is_main_hint
+  local wt_path="" wt_branch="" wt_detached=0 wt_locked=0 wt_prunable=0
   local field
 
   while IFS= read -r -d "$delimiter" field; do
     case "$field" in
       "")
-        is_main_hint=0
-        [ "$record_index" -eq 0 ] && is_main_hint=1
-        _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable" "$is_main_hint"
-        record_index=$((record_index + 1))
+        _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable"
         wt_path=""
         wt_branch=""
         wt_detached=0
@@ -258,10 +246,7 @@ _parse_worktree_records() {
         ;;
       "worktree "*)
         if [ -n "$wt_path" ]; then
-          is_main_hint=0
-          [ "$record_index" -eq 0 ] && is_main_hint=1
-          _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable" "$is_main_hint"
-          record_index=$((record_index + 1))
+          _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable"
           wt_branch=""
           wt_detached=0
           wt_locked=0
@@ -287,9 +272,7 @@ _parse_worktree_records() {
     esac
   done
 
-  is_main_hint=0
-  [ "$record_index" -eq 0 ] && is_main_hint=1
-  _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable" "$is_main_hint"
+  _emit_worktree_record "$repo_root_canonical" "$wt_path" "$wt_branch" "$wt_detached" "$wt_locked" "$wt_prunable"
 }
 
 # List registered git worktrees for a repository.

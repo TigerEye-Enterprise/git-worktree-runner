@@ -18,7 +18,7 @@
 #
 # Loading: file override (adapters/editor/<name>.sh) → registry → generic PATH fallback
 _EDITOR_REGISTRY="
-antigravity|agy|standard|Antigravity 'agy' command not found. Install from https://antigravity.google|workspace,dot
+antigravity|agy-ide|standard|Antigravity 'agy-ide' command not found. Install from https://antigravity.google|workspace,dot
 atom|atom|standard|Atom (legacy) not found. Atom was sunset; see https://github.blog/news-insights/product-news/sunsetting-atom/|
 cursor|cursor|standard|Cursor not found. Install from https://cursor.com or enable the shell command.|workspace
 emacs|emacs|terminal|Emacs not found. Install from https://www.gnu.org/software/emacs/|background
@@ -52,7 +52,6 @@ continue|cn|Continue CLI (legacy) not found.|Continue is no longer actively main
 copilot|copilot|GitHub Copilot CLI not found.|Install with: npm install -g @github/copilot;Or: brew install copilot-cli;See https://github.com/github/copilot-cli for more information
 gemini|gemini|Gemini CLI not found. Install with: npm install -g @google/gemini-cli|Or: brew install gemini-cli;See https://github.com/google-gemini/gemini-cli for more info
 opencode|opencode|OpenCode not found. Install from https://opencode.ai|Make sure the 'opencode' CLI is available in your PATH
-kilo|kilo|Kilo Code not found. Install with: npm install -g @kilocode/cli|See https://kilo.ai for more information
 "
 
 # Registry lookup — find an adapter entry by name
