@@ -181,6 +181,60 @@ require_runtime_shell() {
   command -v "$shell_name" >/dev/null 2>&1 || skip "$shell_name is not installed"
 }
 
+# Use real generated hooks and a harmless delegated script. Keep the definitions
+# and canonical path identical when replacing the Git directory.
+run_generated_replacement_repo_hooks() (
+  set -e
+  local shell_name="$1" fixture
+  fixture=$(mktemp -d)
+  trap 'rm -rf "$fixture"' EXIT
+  export REPO_FIXTURE="$fixture/repo with spaces"
+  export INIT_FIXTURE="$fixture/init.$shell_name"
+  export XDG_CONFIG_HOME="$fixture/config"
+  mkdir -p "$REPO_FIXTURE"
+  git -C "$REPO_FIXTURE" init --quiet
+  git config -f "$REPO_FIXTURE/.gtrconfig" hooks.postCd 'sh "$REPO_ROOT/bootstrap.sh"'
+  printf 'echo original > "$REPO_ROOT/hook-result"\n' > "$REPO_FIXTURE/bootstrap.sh"
+  source "$PROJECT_ROOT/lib/hooks.sh"
+  _hooks_mark_trusted "$REPO_FIXTURE/.gtrconfig"
+  cmd_init "$shell_name" > "$INIT_FIXTURE"
+  "$shell_name" -c 'source "$INIT_FIXTURE"; gtr_run_post_cd_hooks "$REPO_FIXTURE"'
+  [ "$(cat "$REPO_FIXTURE/hook-result")" = original ]
+  # Verify every generated identity helper fails closed without birth times.
+  mkdir "$fixture/bin"
+  printf '#!/bin/sh\necho 1:2:0.000000000\n' > "$fixture/bin/stat"
+  chmod +x "$fixture/bin/stat"
+  if PATH="$fixture/bin:$PATH" "$shell_name" -c 'source "$INIT_FIXTURE"; gtr_hooks_repo_identity "$REPO_FIXTURE"'; then
+    return 1
+  fi
+  mv "$REPO_FIXTURE/.git" "$fixture/original-git"
+  git -C "$REPO_FIXTURE" init --quiet
+  printf 'echo replacement > "$REPO_ROOT/hook-result"\n' > "$REPO_FIXTURE/bootstrap.sh"
+  rm "$REPO_FIXTURE/hook-result"
+  "$shell_name" -c 'source "$INIT_FIXTURE"; gtr_run_post_cd_hooks "$REPO_FIXTURE"'
+  [ ! -f "$REPO_FIXTURE/hook-result" ]
+)
+
+@test "bash generated hooks reject replacement repo with identical definitions" {
+  run run_generated_replacement_repo_hooks bash
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Untrusted .gtrconfig hooks skipped"* ]]
+}
+
+@test "zsh generated hooks reject replacement repo with identical definitions" {
+  require_runtime_shell zsh
+  run run_generated_replacement_repo_hooks zsh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Untrusted .gtrconfig hooks skipped"* ]]
+}
+
+@test "fish generated hooks reject replacement repo with identical definitions" {
+  require_runtime_shell fish
+  run run_generated_replacement_repo_hooks fish
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Untrusted .gtrconfig hooks skipped"* ]]
+}
+
 # ── Default function name ────────────────────────────────────────────────────
 
 @test "bash output defines gtr() function by default" {
@@ -952,7 +1006,7 @@ require_runtime_shell() {
 
 @test "cache invalidates old default shell integration schema" {
   mkdir -p "$XDG_CACHE_HOME/gtr"
-  printf '%s\n%s\n' '# gtr-cache: version=test init=5 func=gtr shell=bash' old-cache > "$XDG_CACHE_HOME/gtr/init-gtr.bash"
+  printf '%s\n%s\n' '# gtr-cache: version=test init=6 func=gtr shell=bash' old-cache > "$XDG_CACHE_HOME/gtr/init-gtr.bash"
 
   run cmd_init bash
 
@@ -960,19 +1014,19 @@ require_runtime_shell() {
   [ "$output" != "old-cache" ]
   local stamp
   stamp="$(head -1 "$XDG_CACHE_HOME/gtr/init-gtr.bash")"
-  [[ "$stamp" == *"init=6"* ]]
+  [[ "$stamp" == *"init=7"* ]]
 }
 
 @test "documented bash setup regenerates old schema cache" {
   mkdir -p "$XDG_CACHE_HOME/gtr"
   local _gtr_init="$XDG_CACHE_HOME/gtr/init-gtr.bash"
-  printf '%s\n%s\n' '# gtr-cache: version=test init=5 func=gtr shell=bash' old-cache > "$_gtr_init"
+  printf '%s\n%s\n' '# gtr-cache: version=test init=6 func=gtr shell=bash' old-cache > "$_gtr_init"
 
   cmd_init bash >/dev/null
 
   local stamp
   stamp="$(head -1 "$_gtr_init")"
-  [[ "$stamp" == *"init=6"* ]]
+  [[ "$stamp" == *"init=7"* ]]
 }
 
 @test "cache uses --as func name in cache key" {
@@ -987,5 +1041,45 @@ require_runtime_shell() {
     GTR_VERSION="9.9.9" run cmd_init "$sh"
     [ "$status" -eq 0 ]
     [ -f "$XDG_CACHE_HOME/gtr/init-gtr.${sh}" ]
+  done
+}
+
+run_generated_snapshot_replacement_hooks() (
+  set -e
+  local shell_name="$1" fixture
+  fixture=$(mktemp -d)
+  trap 'rm -rf "$fixture"' EXIT
+  export REPO_FIXTURE="$fixture/repo"
+  export INIT_FIXTURE="$fixture/init.$shell_name"
+  export XDG_CONFIG_HOME="$fixture/config"
+  export REAL_GIT
+  REAL_GIT=$(command -v git)
+  mkdir -p "$REPO_FIXTURE" "$fixture/bin"
+  git -C "$REPO_FIXTURE" init --quiet
+  git config -f "$REPO_FIXTURE/.gtrconfig" hooks.postCd 'echo approved > "$REPO_ROOT/result"'
+  source "$PROJECT_ROOT/lib/hooks.sh"
+  _hooks_mark_trusted "$REPO_FIXTURE/.gtrconfig"
+  cmd_init "$shell_name" > "$INIT_FIXTURE"
+  cat > "$fixture/bin/git" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "$1" = config ] && [ "${2:-}" = -z ] && [ "${4:-}" = "$REPO_FIXTURE/.gtrconfig" ]; then
+  "$REAL_GIT" "$@" > "$REPO_FIXTURE/captured"
+  "$REAL_GIT" config -f "$REPO_FIXTURE/.gtrconfig" hooks.postCd 'echo attacker > "$REPO_ROOT/result"'
+  cat "$REPO_FIXTURE/captured"
+else
+  exec "$REAL_GIT" "$@"
+fi
+WRAPPER
+  chmod +x "$fixture/bin/git"
+  PATH="$fixture/bin:$PATH" "$shell_name" -c 'source "$INIT_FIXTURE"; gtr_run_post_cd_hooks "$REPO_FIXTURE"'
+  [ "$(cat "$REPO_FIXTURE/result")" = approved ]
+)
+
+@test "generated shells execute the captured approved snapshot after pathname replacement" {
+  local shell_name
+  for shell_name in bash zsh fish; do
+    command -v "$shell_name" >/dev/null || continue
+    run run_generated_snapshot_replacement_hooks "$shell_name"
+    [ "$status" -eq 0 ]
   done
 }

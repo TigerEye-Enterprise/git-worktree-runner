@@ -36,6 +36,7 @@ jobs:
       - name: Verify completion files are up to date
         run: ./scripts/generate-completions.sh --check
 
+
   test:
     name: Tests
     runs-on: ubuntu-latest
@@ -44,8 +45,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install BATS
-        run: sudo apt-get update && sudo apt-get install -y bats
+      - name: Install BATS and shells for integration tests
+        run: sudo apt-get update && sudo apt-get install -y bats fish zsh
 
       - name: Run tests
         run: bats tests/

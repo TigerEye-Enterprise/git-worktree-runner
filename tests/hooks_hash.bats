@@ -12,7 +12,7 @@ setup() {
   REAL_SHASUM=$(command -v shasum || true)
   # Forward ordinary utilities while deliberately excluding both hash tools.
   local tool path
-  for tool in bash env git dirname basename cat mkdir mktemp mv rm date awk sed tr cut grep sort head uname wc find tee readlink realpath cp xargs expr which; do
+  for tool in bash env git dirname basename cat mkdir mktemp mv rm date awk sed tr cut grep sort head uname wc find tee readlink realpath cp xargs expr which od stat; do
     path=$(command -v "$tool") || continue
     printf '#!/bin/bash\nexec %q "$@"\n' "$path" > "$HASH_BIN/$tool"
     chmod +x "$HASH_BIN/$tool"
@@ -79,7 +79,7 @@ assert_no_grant() {
   install_fault 'if [ -d "$XDG_CONFIG_HOME/gtr/trusted" ]; then exit 9; fi; exec sha256sum'
   run public_trust
   [ "$status" -ne 0 ]
-  [[ "$output" == *'Failed to verify current executable commands'* ]]
+  [[ "$output" == *'changed during review; current commands remain untrusted'* ]]
   [[ "$output" != *'marked as trusted'* ]]
   [ -n "$(find "$_GTR_TRUST_DIR" -type f -print)" ]
   if PATH="$HASH_BIN" _hooks_are_trusted "$TEST_REPO/.gtrconfig"; then return 1; fi
@@ -95,11 +95,12 @@ assert_no_grant() {
 
 @test "sha256sum fallback preserves trust keys and public worktree hooks" {
   install_real_hasher sha256sum
-  local content expected_hash expected_key repo_root marker second_repo
+  local content expected_hash expected_key repo_root identity marker second_repo
   content=$(_hooks_read_definitions "$TEST_REPO/.gtrconfig")
   expected_hash=$(printf '%s\n' "$content" | "$REAL_SHA256SUM" | cut -d' ' -f1)
   repo_root=$(_hooks_repo_root "$TEST_REPO/.gtrconfig")
-  expected_key=$(printf '%s\n%s\n' "$repo_root" "$expected_hash" | "$REAL_SHA256SUM" | cut -d' ' -f1)
+  identity=$(_hooks_repo_identity "$repo_root")
+  expected_key=$(printf 'v3\n%s\n%s\n%s\n' "$repo_root" "$identity" "$expected_hash" | "$REAL_SHA256SUM" | cut -d' ' -f1)
   [ "$(PATH="$HASH_BIN" _hooks_current_trust_key "$TEST_REPO/.gtrconfig")" = "$expected_key" ]
   run public_trust
   [ "$status" -eq 0 ]
@@ -120,11 +121,12 @@ assert_no_grant() {
 
 @test "shasum preserves legacy content and identity bytes" {
   install_real_hasher shasum
-  local content expected_hash expected_key repo_root
+  local content expected_hash expected_key repo_root identity
   content=$(_hooks_read_definitions "$TEST_REPO/.gtrconfig")
   expected_hash=$(printf '%s\n' "$content" | "$REAL_SHASUM" -a 256 | cut -d' ' -f1)
   repo_root=$(_hooks_repo_root "$TEST_REPO/.gtrconfig")
-  expected_key=$(printf '%s\n%s\n' "$repo_root" "$expected_hash" | "$REAL_SHASUM" -a 256 | cut -d' ' -f1)
+  identity=$(_hooks_repo_identity "$repo_root")
+  expected_key=$(printf 'v3\n%s\n%s\n%s\n' "$repo_root" "$identity" "$expected_hash" | "$REAL_SHASUM" -a 256 | cut -d' ' -f1)
   [ "$(PATH="$HASH_BIN" _hooks_content_hash "$content")" = "$expected_hash" ]
   [ "$(PATH="$HASH_BIN" _hooks_current_trust_key "$TEST_REPO/.gtrconfig")" = "$expected_key" ]
 }

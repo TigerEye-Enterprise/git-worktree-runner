@@ -8,9 +8,10 @@
 # files.
 #
 # Trust state is stored in ~/.config/gtr/trusted/<key>
-# where <key> is a SHA-256 of the canonical repo root plus trusted content hash.
-# Trust is scoped to repo identity + trusted .gtrconfig definitions, not repo
-# snapshot state.
+# where <key> binds the canonical repo root, Git directory identity and trusted
+# content hash. Replacing a repository at the same path requires new approval.
+# Trust approves command definitions, including any code they delegate to; it
+# does not pin script contents, dependencies or repository snapshot state.
 
 _GTR_TRUST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/gtr/trusted"
 
@@ -18,10 +19,42 @@ _GTR_TRUST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/gtr/trusted"
 # Usage: _hooks_read_definitions <config_file>
 _hooks_read_definitions() {
   local config_file="$1"
+  # Hex keeps NUL record boundaries and trailing value newlines in shell variables.
+  # Git emits key<LF>value<NUL>; unlike line records this encoding is injective.
   local hook_content
-  hook_content=$(git config -f "$config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null) || true
+  hook_content=$(git config -z -f "$config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
   [ -n "$hook_content" ] || return 1
   printf '%s\n' "$hook_content"
+}
+
+# Select values only from the captured definitions, never from the pathname.
+# An empty key displays every record for the trust confirmation.
+_hooks_definitions_get() {
+  local definitions="$1" key="${2:-}" mode="${3:-all}" record record_key value last_value=""
+  key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r -d '' record; do
+    record_key="${record%%$'\n'*}"
+    value=""
+    case "$record" in *$'\n'*) value="${record#*$'\n'}" ;; esac
+    if [ -z "$key" ]; then
+      printf '%s = %q\n' "$record_key" "$value"
+    elif [ "$record_key" = "$key" ]; then
+      if [ "$mode" = last ]; then
+        last_value="$value"
+      else
+        printf '%s\n' "$value"
+      fi
+    fi
+  done < <(printf '%b' "$(printf '%s' "$definitions" | sed 's/../\\x&/g')")
+  if [ "$mode" = last ]; then printf '%s\n' "$last_value"; fi
+}
+
+# Validate a captured snapshot against its repository-scoped marker.
+_hooks_snapshot_is_trusted() {
+  local config_file="$1" definitions="$2" trust_path
+  [ -n "$definitions" ] || return 0
+  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$definitions") || return 1
+  _hooks_marker_matches_config "$trust_path" "$config_file"
 }
 
 # Compute a content hash for trusted command definitions.
@@ -32,8 +65,8 @@ _hooks_content_hash() {
   printf '%s\n' "$hook_content" | _hooks_sha256
 }
 
-# Hash stdin without masking a failed executable behind an output parser.
-# Explicit checks also apply when callers suppress errexit (e.g. trust checks).
+# Hash stdin without masking a failed executable behind an output parser (TigerEye fork).
+# Git for Windows ships sha256sum but not shasum; a missing hasher must fail, never yield "".
 _hooks_sha256() {
   local output digest
   local -a hasher
@@ -82,6 +115,27 @@ _hooks_repo_root() {
   )
 }
 
+# Identify this repository instance, rather than just its reusable path.
+# Use the common Git directory so normal commits and linked worktrees do not
+# invalidate approval. Require a known birth time and preserve nanoseconds to
+# distinguish rapid inode reuse. Filesystems without birth times fail closed.
+# GNU %W is whole seconds even with precision; %w retains birth nanoseconds.
+# Do not use a repository-controlled config value or file as an identity token.
+_hooks_repo_identity() {
+  local repo_root="$1"
+  local common_dir identity birth_time
+  common_dir=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null) || return 1
+  common_dir=$(cd "$repo_root" && cd "$common_dir" && pwd -P) || return 1
+  identity=$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$common_dir" 2>/dev/null) ||
+    identity=$(LC_ALL=C stat -f '%d:%i:%.9FB' "$common_dir" 2>/dev/null) || return 1
+  birth_time="${identity#*:*:}"
+  birth_time="${birth_time%%:*}"
+  case "$birth_time" in
+    ''|0|0.*|*[!0-9.]*) return 1 ;;
+  esac
+  printf '%s\n%s\n' "$common_dir" "$identity"
+}
+
 # Resolve the canonical path for a .gtrconfig file
 # Usage: _hooks_canonical_config_path <config_file>
 _hooks_canonical_config_path() {
@@ -92,14 +146,18 @@ _hooks_canonical_config_path() {
 }
 
 # Compute the repo-scoped trust key for reviewed trusted command content
-# Usage: _hooks_reviewed_trust_key <config_file> <hook_content>
+# Usage: _hooks_reviewed_trust_key <config_file> <hook_content> [repo_identity]
 _hooks_reviewed_trust_key() {
   local config_file="$1"
   local hook_content="$2"
+  local repo_identity="${3:-}"
   local hash repo_root
   hash=$(_hooks_content_hash "$hook_content") || return 1
   repo_root=$(_hooks_repo_root "$config_file") || return 1
-  printf '%s\n%s\n' "$repo_root" "$hash" | _hooks_sha256
+  if [ -z "$repo_identity" ]; then
+    repo_identity=$(_hooks_repo_identity "$repo_root") || return 1
+  fi
+  printf 'v3\n%s\n%s\n%s\n' "$repo_root" "$repo_identity" "$hash" | _hooks_sha256
 }
 
 # Compute the repo-scoped trust key for the current trusted command content
@@ -117,12 +175,13 @@ _hooks_trust_key() {
 }
 
 # Resolve the trust marker path for reviewed trusted command content
-# Usage: _hooks_reviewed_trust_path <config_file> <hook_content>
+# Usage: _hooks_reviewed_trust_path <config_file> <hook_content> [repo_identity]
 _hooks_reviewed_trust_path() {
   local config_file="$1"
   local hook_content="$2"
+  local repo_identity="${3:-}"
   local trust_key
-  trust_key=$(_hooks_reviewed_trust_key "$config_file" "$hook_content") || return 1
+  trust_key=$(_hooks_reviewed_trust_key "$config_file" "$hook_content" "$repo_identity") || return 1
   printf '%s/%s\n' "$_GTR_TRUST_DIR" "$trust_key"
 }
 
@@ -166,8 +225,7 @@ _hooks_are_trusted() {
 
   local hook_content trust_path
   hook_content=$(_hooks_read_definitions "$config_file") || return 0
-  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$hook_content") || return 1
-  _hooks_marker_matches_config "$trust_path" "$config_file"
+  _hooks_snapshot_is_trusted "$config_file" "$hook_content"
 }
 
 # Write a trust marker that matches the reviewed command definitions
@@ -219,15 +277,15 @@ _hooks_get_trusted() {
   local file_hooks=""
 
   if [ -n "$config_file" ] && [ -f "$config_file" ]; then
-    if _hooks_are_trusted "$config_file"; then
-      file_hooks=$(git config -f "$config_file" --get-all "hooks.$phase" 2>/dev/null) || true
-    else
-      local untrusted_hooks
-      untrusted_hooks=$(git config -f "$config_file" --get-all "hooks.$phase" 2>/dev/null) || true
-      if [ -n "$untrusted_hooks" ]; then
+    local definitions
+    definitions=$(_hooks_read_definitions "$config_file") || true
+    file_hooks=$(_hooks_definitions_get "$definitions" "hooks.$phase")
+    if ! _hooks_snapshot_is_trusted "$config_file" "$definitions"; then
+      if [ -n "$file_hooks" ]; then
         log_warn "Untrusted .gtrconfig hooks for '$phase' phase — skipping"
         log_warn "Review hooks in $config_file, then run: git gtr trust"
       fi
+      file_hooks=""
     fi
   fi
 

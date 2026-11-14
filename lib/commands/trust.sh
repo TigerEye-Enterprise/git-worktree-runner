@@ -10,6 +10,11 @@ cmd_trust() {
     return 0
   fi
 
+  # Bind the definitions to the repository present before they are read.
+  local repo_root repo_identity
+  repo_root=$(_hooks_repo_root "$config_file") || return 1
+  repo_identity=$(_hooks_repo_identity "$repo_root") || return 1
+
   # Show all trusted command entries from .gtrconfig
   local hook_content
   hook_content=$(_hooks_read_definitions "$config_file") || true
@@ -19,34 +24,32 @@ cmd_trust() {
     return 0
   fi
 
-  if _hooks_are_trusted "$config_file"; then
+  if _hooks_snapshot_is_trusted "$config_file" "$hook_content"; then
     log_info "Executable commands in $config_file are already trusted"
     log_info "Current trusted commands:"
-    printf '%s\n' "$hook_content" >&2
+    _hooks_definitions_get "$hook_content" >&2
     return 0
   fi
 
   local trust_path
-  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$hook_content") || {
+  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$hook_content" "$repo_identity") || {
     log_error "Failed to compute trust marker for $config_file"
     return 1
   }
 
   log_warn "The following executable commands are defined in $config_file:"
   echo "" >&2
-  printf '%s\n' "$hook_content" >&2
+  _hooks_definitions_get "$hook_content" >&2
   echo "" >&2
   log_warn "These commands will execute on your machine during gtr operations."
+  log_warn "Approval includes scripts and programs they invoke; their contents are not pinned."
 
   if prompt_yes_no "Trust these commands?"; then
     if _hooks_write_trust_marker "$trust_path" "$config_file"; then
       local current_trust_path
-      current_trust_path=$(_hooks_current_trust_path "$config_file") || {
-        log_error "Failed to verify current executable commands after writing trust marker"
-        return 1
-      }
-      if [ -n "$current_trust_path" ] && [ "$current_trust_path" != "$trust_path" ]; then
-        log_warn "Executable commands changed during review; current commands remain untrusted"
+      current_trust_path=$(_hooks_current_trust_path "$config_file") || true
+      if [ "$current_trust_path" != "$trust_path" ]; then
+        log_warn "Executable commands or repository identity changed during review; current commands remain untrusted"
         return 1
       fi
       log_info "Executable commands marked as trusted"

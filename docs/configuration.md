@@ -71,6 +71,12 @@ Create a `.gtrconfig` file in your repository root to share configuration across
 > [!IMPORTANT]
 > Hooks and editor/AI defaults from `.gtrconfig` are executable command entries. They are ignored until you review them with `git gtr trust`; changing those entries requires re-approval.
 
+Approval is bound to the repository path and the filesystem identity of its common Git directory. A replacement or fresh clone at the same path needs new approval, as do approvals created by older versions that only used the path. Normal commits and linked worktrees retain approval. This is command-definition trust: scripts, dependencies, and tools invoked by approved commands are not hashed or pinned, so their contents can change within the trusted repository. Review delegated code and trust its contributors before approving.
+
+Command definitions are captured once for trust verification and consumption, with NUL-delimited records preserving multiline values. The version 3 trust format invalidates older approvals; review commands again with `git gtr trust` after upgrading.
+
+The identity includes device, inode, and birth time with nanosecond precision. If the filesystem or `stat` implementation cannot provide a known birth time, approval fails closed and `.gtrconfig` executable commands remain disabled.
+
 ---
 
 ## Worktree Settings
@@ -317,6 +323,11 @@ git gtr config add gtr.copy.excludeDirs "node_modules/.npm"    # Exclude npm cac
 git gtr config add gtr.copy.excludeDirs "node_modules/.*"      # Exclude all hidden dirs in node_modules
 git gtr config add gtr.copy.excludeDirs "*/.cache"             # Exclude .cache at any level
 ```
+
+Directory exclusions never descend through symlinks. An exclusion matching a
+symlink itself removes only the link, including when the pattern ends in `/`;
+the link target is preserved. Exclusions are skipped when the copied directory
+or one of its path components is a symlink.
 
 > [!WARNING]
 > Dependency directories may contain sensitive files (credentials, tokens, cached secrets). Always use `gtr.copy.excludeDirs` to exclude sensitive subdirectories if needed.

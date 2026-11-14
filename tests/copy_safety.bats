@@ -434,3 +434,278 @@ teardown() {
   [ "$(printf '%s\n' "$resolved" | grep -c '^./one/deep/cache$')" -eq 1 ]
   [ "$(printf '%s\n' "$resolved" | wc -l | tr -d ' ')" -eq 2 ]
 }
+
+@test "directory excludes never traverse copied symlinks" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst" outside="$_test_tmpdir/outside"
+  mkdir -p "$src/deps/nested" "$dst" "$outside/cache"
+  echo "sentinel" > "$outside/cache/keep"
+  echo "remove" > "$src/deps/nested/remove"
+  ln -s "$outside" "$src/deps/nested/link"
+
+  copy_directories "$src" "$dst" deps $'deps/*/link/*/*\ndeps/nested/remove'
+
+  [ "$(cat "$outside/cache/keep")" = sentinel ]
+  [ -L "$dst/deps/nested/link" ]
+  [ ! -e "$dst/deps/nested/remove" ]
+}
+
+@test "directory excludes reject symlinks in the exclusion root" {
+  _test_tmpdir=$(mktemp -d)
+  local dest="$_test_tmpdir/dest" outside="$_test_tmpdir/outside"
+  mkdir -p "$dest" "$outside/deps"
+  echo "sentinel" > "$outside/deps/keep"
+  ln -s "$outside" "$dest/vendor"
+  ln -s "$outside/deps" "$dest/deps"
+
+  _apply_directory_excludes "$dest" vendor/deps 'vendor/deps/*'
+  _apply_directory_excludes "$dest" deps 'deps/*'
+
+  [ "$(cat "$outside/deps/keep")" = sentinel ]
+}
+
+@test "directory excludes can unlink leaf symlinks including dangling links" {
+  _test_tmpdir=$(mktemp -d)
+  local dest="$_test_tmpdir/dest" outside="$_test_tmpdir/outside"
+  mkdir -p "$dest/deps" "$outside"
+  echo "sentinel" > "$outside/keep"
+  ln -s "$outside" "$dest/deps/link"
+  ln -s "$outside/missing" "$dest/deps/dangling"
+
+  _apply_directory_excludes "$dest" deps $'deps/link/\ndeps/dangling'
+
+  [ ! -L "$dest/deps/link" ]
+  [ ! -L "$dest/deps/dangling" ]
+  [ "$(cat "$outside/keep")" = sentinel ]
+}
+
+@test "directory excludes reject glob spellings of parent traversal and metadata" {
+  _test_tmpdir=$(mktemp -d)
+  local dest="$_test_tmpdir/dest"
+  mkdir -p "$dest/deps/.git" "$dest/sibling"
+  echo "metadata" > "$dest/deps/.git/config"
+  echo "sentinel" > "$dest/sibling/keep"
+
+  _apply_directory_excludes "$dest" deps $'deps/[.][.]/*\ndeps/[.]git/*\ndeps/./*'
+
+  [ "$(cat "$dest/sibling/keep")" = sentinel ]
+  [ "$(cat "$dest/deps/.git/config")" = metadata ]
+}
+
+@test "directory excludes preserve spaces and shell options" {
+  _test_tmpdir=$(mktemp -d)
+  local dest="$_test_tmpdir/dest"
+  mkdir -p "$dest/deps/cache space/remove" "$dest/deps/cache space/keep"
+  local options_before
+  options_before=$(shopt -p nullglob dotglob globstar 2>/dev/null || true)
+
+  _apply_directory_excludes "$dest" deps 'deps/cache space/remove'
+
+  [ ! -e "$dest/deps/cache space/remove" ]
+  [ -d "$dest/deps/cache space/keep" ]
+  [ "$(shopt -p nullglob dotglob globstar 2>/dev/null || true)" = "$options_before" ]
+}
+
+@test "broad includes never overwrite worktree Git pointers or nested metadata" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/nested/.git" "$dst"
+  echo source > "$src/.git"
+  echo secret > "$src/nested/.git/config"
+  echo destination > "$dst/.git"
+  copy_patterns "$src" "$dst" '*' ''
+  copy_directories "$src" "$dst" nested ''
+  [ "$(cat "$dst/.git")" = destination ]
+  [ ! -e "$dst/nested/.git" ]
+}
+
+@test "expanded traversal cannot copy outside either root" {
+  _test_tmpdir=$(mktemp -d)
+  mkdir -p "$_test_tmpdir/src" "$_test_tmpdir/dst"
+  echo secret > "$_test_tmpdir/victim"
+  cd "$_test_tmpdir/src"
+  ! _copy_pattern_file '../victim' "$_test_tmpdir/dst" '' true false
+  ! _copy_pattern_file '././../victim' "$_test_tmpdir/dst" '' true false
+  [ "$(cat "$_test_tmpdir/victim")" = secret ]
+}
+
+@test "file copies reject source links and destination leaf and ancestor links" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst" outside="$_test_tmpdir/outside"
+  mkdir -p "$src/vendor" "$dst" "$outside"
+  echo private > "$outside/secret"
+  echo replacement > "$src/vendor/secret"
+  ln -s "$outside/secret" "$src/leak"
+  ln -s "$outside/secret" "$dst/leaf"
+  ln -s "$outside" "$dst/vendor"
+  echo replacement > "$src/leaf"
+  copy_patterns "$src" "$dst" $'leak\nleaf\nvendor/*' ''
+  [ ! -e "$dst/leak" ]
+  [ "$(cat "$outside/secret")" = private ]
+}
+
+@test "directory copies reject destination links at every depth" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst" outside="$_test_tmpdir/outside"
+  mkdir -p "$src/vendor/cache" "$dst/vendor" "$outside"
+  echo private > "$outside/secret"
+  echo replacement > "$src/vendor/cache/secret"
+  ln -s "$outside" "$dst/vendor/cache"
+  copy_directories "$src" "$dst" vendor ''
+  [ "$(cat "$outside/secret")" = private ]
+}
+
+@test "newline discovery never reconstructs a parent traversal record" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/"$'safe\n..' "$dst"
+  echo private > "$_test_tmpdir/secret"
+  copy_directories "$src" "$dst" '*' ''
+  [ ! -e "$dst/secret" ]
+  cd "$src"
+  local count
+  echo value > "$src/"$'safe\n..'"/file"
+  count=$(_expand_and_copy_pattern '**/*' "$dst" '' true false 0)
+  [ "$count" -eq 0 ]
+}
+
+@test "directory merge preserves destination-only files and hard-linked external data" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/cache" "$dst/cache"
+  echo private > "$_test_tmpdir/secret"
+  ln "$_test_tmpdir/secret" "$dst/cache/value"
+  echo replacement > "$src/cache/value"
+  echo keep > "$dst/cache/keep"
+  copy_directories "$src" "$dst" cache ''
+  [ "$(cat "$dst/cache/keep")" = keep ]
+  [ "$(cat "$_test_tmpdir/secret")" = private ]
+  [ "$(cat "$dst/cache/value")" = replacement ]
+}
+
+@test "failed clone fallback only removes its own staging output" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/cache" "$dst"
+  echo value > "$src/cache/file"
+  _fast_copy_os=darwin
+  cp() {
+    if [ "$1" = -cRP ]; then
+      mkdir -p "$4/cache"
+      echo partial > "$4/cache/partial"
+      return 1
+    fi
+    command cp "$@"
+  }
+  _fast_copy_dir "$src/cache" "$dst/"
+  [ "$(cat "$dst/cache/file")" = value ]
+  [ ! -e "$dst/cache/partial" ]
+  [ "$(find "$dst" -name '.gtr-copy.*' | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "staged directory merges preserve executable file permissions" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/tools" "$dst/tools"
+  printf '#!/bin/sh\necho executable\n' > "$src/tools/run"
+  chmod +x "$src/tools/run"
+  echo unrelated > "$dst/tools/existing"
+  _fast_copy_dir "$src/tools" "$dst/"
+  [ -x "$dst/tools/run" ]
+  [ "$("$dst/tools/run")" = executable ]
+}
+
+@test "staged file copies respect a restrictive umask" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src" "$dst"
+  echo secret > "$src/.env"
+  chmod 644 "$src/.env"
+  (umask 077; copy_patterns "$src" "$dst" .env '')
+  local mode
+  mode=$(stat -c '%a' "$dst/.env" 2>/dev/null) || mode=$(stat -f '%Lp' "$dst/.env")
+  [ "$mode" = 600 ]
+}
+
+@test "staged replacements retain restrictive existing destination permissions" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src" "$dst"
+  echo secret > "$src/.env"
+  chmod 644 "$src/.env"
+  echo old > "$dst/.env"
+  chmod 600 "$dst/.env"
+  (umask 022; copy_patterns "$src" "$dst" .env '')
+  local mode
+  mode=$(stat -c '%a' "$dst/.env" 2>/dev/null) || mode=$(stat -f '%Lp' "$dst/.env")
+  [ "$mode" = 600 ]
+  [ "$(cat "$dst/.env")" = secret ]
+}
+
+@test "preserved directory symlinks never chmod their external referents" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst" outside="$_test_tmpdir/secret"
+  mkdir -p "$src/cache" "$dst/cache"
+  echo private > "$outside"
+  chmod 600 "$outside"
+  ln -s "$outside" "$src/cache/link"
+  echo old > "$dst/cache/link"
+  chmod 644 "$dst/cache/link"
+  copy_directories "$src" "$dst" cache ''
+  [ -L "$dst/cache/link" ]
+  local mode
+  mode=$(stat -c '%a' "$outside" 2>/dev/null) || mode=$(stat -f '%Lp' "$outside")
+  [ "$mode" = 600 ]
+  [ "$(cat "$outside")" = private ]
+}
+
+@test "copy guards reject case variants of Git metadata on every platform" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/nested/.GiT" "$dst"
+  echo source > "$src/.GIT"
+  echo metadata > "$src/nested/.GiT/config"
+  echo destination > "$dst/.git"
+  copy_patterns "$src" "$dst" '.GIT' ''
+  copy_directories "$src" "$dst" nested ''
+  [ "$(cat "$dst/.git")" = destination ]
+  [ ! -e "$dst/.GIT" ] || [ "$(cat "$dst/.GIT")" = destination ]
+  [ ! -e "$dst/nested/.GiT" ]
+  mkdir -p "$dst/nested/.GiT"
+  echo keep > "$dst/nested/.GiT/config"
+  _apply_directory_excludes "$dst" nested 'nested/.GiT'
+  [ "$(cat "$dst/nested/.GiT/config")" = keep ]
+}
+
+@test "directory staging is rejected if Git metadata removal fails" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst" mock_bin="$_test_tmpdir/bin"
+  mkdir -p "$src/cache/.git" "$dst" "$mock_bin"
+  echo metadata > "$src/cache/.git/config"
+  cat > "$mock_bin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in */.git) exit 1 ;; esac
+done
+exec /bin/rm "$@"
+SH
+  chmod +x "$mock_bin/rm"
+  PATH="$mock_bin:$PATH" run _fast_copy_dir "$src/cache" "$dst/"
+  [ "$status" -ne 0 ]
+  [ ! -e "$dst/cache" ]
+  [ "$(find "$dst" -name '.gtr-copy.*' | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "directory staging is rejected when metadata verification cannot scan it" {
+  _test_tmpdir=$(mktemp -d)
+  local src="$_test_tmpdir/src" dst="$_test_tmpdir/dst"
+  mkdir -p "$src/cache" "$dst"
+  echo value > "$src/cache/file"
+  find() {
+    case "$*" in *'-print -quit'*) return 1 ;; esac
+    command find "$@"
+  }
+  run _fast_copy_dir "$src/cache" "$dst/"
+  [ "$status" -ne 0 ]
+  [ ! -e "$dst/cache" ]
+}

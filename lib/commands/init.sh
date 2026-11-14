@@ -68,7 +68,7 @@ cmd_init() {
   # Generate output (cached to ~/.cache/gtr/, auto-invalidates on shell integration changes)
   local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/gtr"
   local cache_file="$cache_dir/init-${func_name}.${shell}"
-  local cache_schema="${GTR_INIT_CACHE_VERSION:-6}"
+  local cache_schema="${GTR_INIT_CACHE_VERSION:-7}"
   local cache_stamp="# gtr-cache: version=${GTR_VERSION:-unknown} init=${cache_schema} func=$func_name shell=$shell"
 
   # Return cached output if version matches
@@ -90,11 +90,71 @@ cmd_init() {
   fi
 }
 
+# This template is exercised against the CLI's snapshot helpers in tests.
+_init_emit_snapshot_helpers() {
+  cat <<'SNAPSHOT'
+__FUNC___hooks_read_definitions() {
+  local config_file="$1"
+  # Hex keeps NUL record boundaries and trailing value newlines in shell variables.
+  # Git emits key<LF>value<NUL>; unlike line records this encoding is injective.
+  local hook_content
+  hook_content=$(git config -z -f "$config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
+  [ -n "$hook_content" ] || return 1
+  printf '%s\n' "$hook_content"
+}
+
+# Select values only from the captured definitions, never from the pathname.
+# An empty key displays every record for the trust confirmation.
+__FUNC___hooks_definitions_get() {
+  local definitions="$1" key="${2:-}" mode="${3:-all}" record record_key value last_value=""
+  key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r -d '' record; do
+    record_key="${record%%$'\n'*}"
+    value=""
+    case "$record" in *$'\n'*) value="${record#*$'\n'}" ;; esac
+    if [ -z "$key" ]; then
+      printf '%s = %q\n' "$record_key" "$value"
+    elif [ "$record_key" = "$key" ]; then
+      if [ "$mode" = last ]; then
+        last_value="$value"
+      else
+        printf '%s\n' "$value"
+      fi
+    fi
+  done < <(printf '%b' "$(printf '%s' "$definitions" | sed 's/../\\x&/g')")
+  if [ "$mode" = last ]; then printf '%s\n' "$last_value"; fi
+}
+
+SNAPSHOT
+}
+
 _init_emit_posix_trust_helpers() {
   local shell_prelude="$1"
   local template
 
+  # Keep the snapshot encoding and extraction identical to the CLI.
+  _init_emit_snapshot_helpers
+
+  # Keep case patterns balanced inside this substitution for Bash 3.2's parser.
   template=$(cat <<'EOF'
+__FUNC___sha256() {
+__SHELL_PRELUDE__
+  local _gtr_digest
+  if command -v shasum >/dev/null 2>&1; then
+    _gtr_digest="$(shasum -a 256)" || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    _gtr_digest="$(sha256sum)" || return 1
+  else
+    return 1
+  fi
+  _gtr_digest="${_gtr_digest%%[[:space:]]*}"
+  case "$_gtr_digest" in
+    (*[!0-9a-f]*|'') return 1 ;;
+  esac
+  [ "${#_gtr_digest}" -eq 64 ] || return 1
+  printf '%s\n' "$_gtr_digest"
+}
+
 __FUNC___gtrconfig_path() {
 __SHELL_PRELUDE__
   local _gtr_git_common_dir _gtr_repo_root
@@ -112,9 +172,12 @@ __SHELL_PRELUDE__
 __FUNC___hooks_current_content_hash() {
 __SHELL_PRELUDE__
   local _gtr_config_file="$1"
-  local _gtr_hook_defs
-  _gtr_hook_defs="$(git config -f "$_gtr_config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null)" || return 1
-  printf '%s\n' "$_gtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
+  local _gtr_hook_defs="${2:-}"
+  if [ "$#" -lt 2 ]; then
+    _gtr_hook_defs="$(__FUNC___hooks_read_definitions "$_gtr_config_file")" || return 1
+  fi
+  [ -n "$_gtr_hook_defs" ] || return 1
+  printf '%s\n' "$_gtr_hook_defs" | __FUNC___sha256
 }
 
 __FUNC___hooks_repo_root() {
@@ -131,13 +194,34 @@ __SHELL_PRELUDE__
   printf '%s/%s\n' "$_gtr_repo_root" "$(basename "$_gtr_config_file")"
 }
 
+__FUNC___hooks_repo_identity() {
+__SHELL_PRELUDE__
+  local _gtr_repo_root="$1"
+  local _gtr_common_dir _gtr_identity _gtr_birth_time
+  _gtr_common_dir="$(git -C "$_gtr_repo_root" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  _gtr_common_dir="$(cd "$_gtr_repo_root" && cd "$_gtr_common_dir" && pwd -P)" || return 1
+  _gtr_identity="$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$_gtr_common_dir" 2>/dev/null)" ||
+    _gtr_identity="$(LC_ALL=C stat -f '%d:%i:%.9FB' "$_gtr_common_dir" 2>/dev/null)" || return 1
+  _gtr_birth_time="${_gtr_identity#*:*:}"
+  _gtr_birth_time="${_gtr_birth_time%%:*}"
+  case "$_gtr_birth_time" in
+    (''|0|0.*|*[!0-9.]*) return 1 ;;
+  esac
+  printf '%s\n%s\n' "$_gtr_common_dir" "$_gtr_identity"
+}
+
 __FUNC___hooks_current_trust_key() {
 __SHELL_PRELUDE__
   local _gtr_config_file="$1"
-  local _gtr_hook_hash _gtr_repo_root
-  _gtr_hook_hash="$(__FUNC___hooks_current_content_hash "$_gtr_config_file" 2>/dev/null)" || return 1
+  local _gtr_hook_hash _gtr_repo_root _gtr_repo_identity
+  local _gtr_definitions="${2:-}"
+  if [ "$#" -lt 2 ]; then
+    _gtr_definitions="$(__FUNC___hooks_read_definitions "$_gtr_config_file")" || return 1
+  fi
+  _gtr_hook_hash="$(__FUNC___hooks_current_content_hash "$_gtr_config_file" "$_gtr_definitions" 2>/dev/null)" || return 1
   _gtr_repo_root="$(__FUNC___hooks_repo_root "$_gtr_config_file" 2>/dev/null)" || return 1
-  printf '%s\n%s\n' "$_gtr_repo_root" "$_gtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  _gtr_repo_identity="$(__FUNC___hooks_repo_identity "$_gtr_repo_root" 2>/dev/null)" || return 1
+  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | __FUNC___sha256
 }
 
 __FUNC___hooks_marker_matches_config() {
@@ -156,7 +240,7 @@ __SHELL_PRELUDE__
   local _gtr_config_file="$1"
   local _gtr_trust_dir="$2"
   local _gtr_trust_key
-  _gtr_trust_key="$(__FUNC___hooks_current_trust_key "$_gtr_config_file" 2>/dev/null)" || return 1
+  _gtr_trust_key="$(__FUNC___hooks_current_trust_key "$_gtr_config_file" "${3:-}" 2>/dev/null)" || return 1
   __FUNC___hooks_marker_matches_config "$_gtr_trust_dir/$_gtr_trust_key" "$_gtr_config_file"
 }
 EOF
@@ -166,6 +250,13 @@ EOF
 }
 
 _init_emit_fish_trust_helpers() {
+  local snapshot_helpers
+  snapshot_helpers=$(_init_emit_snapshot_helpers | sed 's/__FUNC___hooks_/_hooks_/g')
+  # Quote the helper source for a Fish single-quoted string.
+  snapshot_helpers="${snapshot_helpers//\\/\\\\}"
+  snapshot_helpers="${snapshot_helpers//\'/\\\'}"
+  printf "function __FUNC___hooks_read_definitions\n  command bash -c '%s\n_hooks_read_definitions \"\$1\"' bash \"\$argv[1]\"\nend\n" "$snapshot_helpers"
+  printf "function __FUNC___hooks_definitions_get\n  command bash -c '%s\n_hooks_definitions_get \"\$1\" \"\$2\"' bash \"\$argv[1]\" \"\$argv[2]\"\nend\n" "$snapshot_helpers"
   cat <<'FISH'
 function __FUNC___gtrconfig_path
   set -l _gtr_git_common_dir (git rev-parse --git-common-dir 2>/dev/null)
@@ -182,10 +273,12 @@ end
 
 function __FUNC___hooks_current_content_hash
   set -l _gtr_config_file "$argv[1]"
-  set -l _gtr_hook_defs (git config -f "$_gtr_config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  test $pipestatus[1] -eq 0; or return 1
+  set -l _gtr_hook_defs "$argv[2]"
+  if test (count $argv) -lt 2
+    set _gtr_hook_defs (__FUNC___hooks_read_definitions "$_gtr_config_file")
+  end
   test -n "$_gtr_hook_defs"; or return 1
-  printf '%s\n' "$_gtr_hook_defs"
+  printf '%s\n' "$_gtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
 end
 
 function __FUNC___hooks_repo_root
@@ -200,13 +293,36 @@ function __FUNC___hooks_canonical_config_path
   printf '%s/%s\n' "$_gtr_repo_root" (basename "$_gtr_config_file")
 end
 
+function __FUNC___hooks_repo_identity
+  # Keep the identity algorithm identical to the CLI and POSIX wrappers.
+  command sh -c '
+    common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || exit 1
+    common_dir=$(cd "$1" && cd "$common_dir" && pwd -P) || exit 1
+    identity=$(LC_ALL=C TZ=UTC stat -c "%d:%i:%W:%w" "$common_dir" 2>/dev/null) ||
+      identity=$(LC_ALL=C stat -f "%d:%i:%.9FB" "$common_dir" 2>/dev/null) || exit 1
+    birth_time="${identity#*:*:}"
+    birth_time="${birth_time%%:*}"
+    case "$birth_time" in
+      ""|0|0.*|*[!0-9.]*) exit 1 ;;
+    esac
+    printf "%s\\n%s\\n" "$common_dir" "$identity"
+  ' sh "$argv[1]"
+end
+
 function __FUNC___hooks_current_trust_key
   set -l _gtr_config_file "$argv[1]"
-  set -l _gtr_hook_hash (__FUNC___hooks_current_content_hash "$_gtr_config_file" 2>/dev/null)
+  set -l _gtr_definitions "$argv[2]"
+  if test (count $argv) -lt 2
+    set _gtr_definitions (__FUNC___hooks_read_definitions "$_gtr_config_file")
+  end
+  set -l _gtr_hook_hash (__FUNC___hooks_current_content_hash "$_gtr_config_file" "$_gtr_definitions" 2>/dev/null)
   test -n "$_gtr_hook_hash"; or return 1
   set -l _gtr_repo_root (__FUNC___hooks_repo_root "$_gtr_config_file" 2>/dev/null)
   test -n "$_gtr_repo_root"; or return 1
-  printf '%s\n%s\n' "$_gtr_repo_root" "$_gtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  set -l _gtr_repo_identity (__FUNC___hooks_repo_identity "$_gtr_repo_root" 2>/dev/null | string collect)
+  test $pipestatus[1] -eq 0; or return 1
+  test -n "$_gtr_repo_identity"; or return 1
+  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
 end
 
 function __FUNC___hooks_marker_matches_config
@@ -221,7 +337,7 @@ end
 function __FUNC___hooks_are_trusted
   set -l _gtr_config_file "$argv[1]"
   set -l _gtr_trust_dir "$argv[2]"
-  set -l _gtr_trust_key (__FUNC___hooks_current_trust_key "$_gtr_config_file" 2>/dev/null)
+  set -l _gtr_trust_key (__FUNC___hooks_current_trust_key "$_gtr_config_file" "$argv[3]" 2>/dev/null)
   test -n "$_gtr_trust_key"; or return 1
   __FUNC___hooks_marker_matches_config "$_gtr_trust_dir/$_gtr_trust_key" "$_gtr_config_file"
 end
@@ -249,10 +365,12 @@ __FUNC___run_post_cd_hooks() {
     _gtr_config_file="$(__FUNC___gtrconfig_path 2>/dev/null)" || true
     if [ -f "$_gtr_config_file" ]; then
       local _gtr_file_hooks
-      _gtr_file_hooks="$(git config -f "$_gtr_config_file" --get-all hooks.postCd 2>/dev/null)" || true
+      local _gtr_definitions
+      _gtr_definitions="$(__FUNC___hooks_read_definitions "$_gtr_config_file")" || true
+      _gtr_file_hooks="$(__FUNC___hooks_definitions_get "$_gtr_definitions" hooks.postCd)"
       if [ -n "$_gtr_file_hooks" ]; then
         # Verify trust before including .gtrconfig hooks
-        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir"; then
+        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir" "$_gtr_definitions"; then
           if [ -n "$_gtr_hooks" ]; then
             _gtr_hooks="$_gtr_hooks"$'\n'"$_gtr_file_hooks"
           else
@@ -434,10 +552,12 @@ __FUNC___run_post_cd_hooks() {
     _gtr_config_file="$(__FUNC___gtrconfig_path 2>/dev/null)" || true
     if [ -f "$_gtr_config_file" ]; then
       local _gtr_file_hooks
-      _gtr_file_hooks="$(git config -f "$_gtr_config_file" --get-all hooks.postCd 2>/dev/null)" || true
+      local _gtr_definitions
+      _gtr_definitions="$(__FUNC___hooks_read_definitions "$_gtr_config_file")" || true
+      _gtr_file_hooks="$(__FUNC___hooks_definitions_get "$_gtr_definitions" hooks.postCd)"
       if [ -n "$_gtr_file_hooks" ]; then
         # Verify trust before including .gtrconfig hooks
-        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir"; then
+        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir" "$_gtr_definitions"; then
           if [ -n "$_gtr_hooks" ]; then
             _gtr_hooks="$_gtr_hooks"$'\n'"$_gtr_file_hooks"
           else
@@ -622,10 +742,11 @@ function __FUNC___run_post_cd_hooks
     set -l _gtr_config_file (__FUNC___gtrconfig_path 2>/dev/null)
     set -l _gtr_file_hooks
     if test -f "$_gtr_config_file"
-      set -l _gtr_candidate_hooks (git config -f "$_gtr_config_file" --get-all hooks.postCd 2>/dev/null)
+      set -l _gtr_definitions (__FUNC___hooks_read_definitions "$_gtr_config_file")
+      set -l _gtr_candidate_hooks (__FUNC___hooks_definitions_get "$_gtr_definitions" hooks.postCd)
       if test (count $_gtr_candidate_hooks) -gt 0
         # Verify trust before including .gtrconfig hooks
-        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir"
+        if __FUNC___hooks_are_trusted "$_gtr_config_file" "$_gtr_trust_dir" "$_gtr_definitions"
           set _gtr_file_hooks $_gtr_candidate_hooks
         else
           echo "__FUNC__: Untrusted .gtrconfig hooks skipped — run 'git gtr trust' to approve" >&2
