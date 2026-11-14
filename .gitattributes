@@ -1,0 +1,5 @@
+*.sh text eol=lf
+bin/* text eol=lf
+completions/* text eol=lf
+lib/* text eol=lf
+adapters/**/*.sh text eol=lf
