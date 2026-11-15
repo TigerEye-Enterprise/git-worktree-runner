@@ -465,7 +465,8 @@ EOF
         shasum) continue ;;
         sha256sum) [ "$d" = none ] && continue ;;
       esac
-      [ -e "$shim/$(basename "$f")" ] || ln -s "$f" "$shim/$(basename "$f")"
+      # -L too: -e is false for a dangling link, and /bin and /usr/bin can both carry one.
+      [ -e "$shim/$(basename "$f")" ] || [ -L "$shim/$(basename "$f")" ] || ln -s "$f" "$shim/$(basename "$f")"
     done
     for shell in bash zsh fish; do
       command -v "$shell" >/dev/null || continue
