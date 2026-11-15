@@ -37,6 +37,18 @@ jobs:
         run: ./scripts/generate-completions.sh --check
 
 
+  bash32:
+    # Replaces upstream's macOS job (dropped: hosted macOS minutes). Same parser, official image.
+    name: Bash 3.2 parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Parse scripts and emitted shell integration under Bash 3.2
+        run: docker run --rm -v "$PWD:/w" -w /w bash:3.2@sha256:2556c2da19c32c1614d318645c73a7bf64d38be21cf69e98e3ca51f053983719 bash scripts/check-bash32.sh
+
   test:
     name: Tests
     runs-on: ubuntu-latest

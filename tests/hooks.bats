@@ -451,6 +451,45 @@ EOF
   done
 }
 
+@test "generated shells match the CLI key with only sha256sum, and fail closed with no hasher" {
+  # TigerEye fork: Git for Windows ships sha256sum but no shasum; every emitted helper must agree.
+  source "$PROJECT_ROOT/lib/commands/init.sh"
+  git config -f "$TEST_REPO/.gtrconfig" hooks.postCd 'echo approved'
+  local expected shell script shim d f
+  expected=$(_hooks_current_trust_key "$TEST_REPO/.gtrconfig")
+  for d in sha256sum-only none; do
+    shim="$BATS_TEST_TMPDIR/shim-$d"
+    mkdir -p "$shim"
+    for f in /usr/local/bin/* /usr/bin/* /bin/*; do
+      case "$(basename "$f")" in
+        shasum) continue ;;
+        sha256sum) [ "$d" = none ] && continue ;;
+      esac
+      [ -e "$shim/$(basename "$f")" ] || ln -s "$f" "$shim/$(basename "$f")"
+    done
+    for shell in bash zsh fish; do
+      command -v "$shell" >/dev/null || continue
+      script="$BATS_TEST_TMPDIR/hash.$d.$shell"
+      if [ "$shell" = fish ]; then
+        _init_emit_fish_trust_helpers | sed 's/__FUNC__/gtr/g' > "$script"
+        printf '\ngtr_hooks_current_trust_key "$argv[1]"\n' >> "$script"
+      else
+        _init_emit_posix_trust_helpers '' | sed 's/__FUNC__/gtr/g' > "$script"
+        printf '\ngtr_hooks_current_trust_key "$1"\n' >> "$script"
+      fi
+      run env PATH="$shim" "$shell" "$script" "$TEST_REPO/.gtrconfig"
+      # One assertion per line: under set -e a failing non-final `&&` operand is ignored.
+      if [ "$d" = none ]; then
+        [ "$status" -ne 0 ]
+        [ -z "$output" ]
+      else
+        [ "$status" -eq 0 ]
+        [ "$output" = "$expected" ]
+      fi
+    done
+  done
+}
+
 @test "snapshot defaults retain git config last-value and boolean semantics" {
   git config -f "$TEST_REPO/.gtrconfig" --add defaults.ai first
   git config -f "$TEST_REPO/.gtrconfig" --add defaults.ai last
