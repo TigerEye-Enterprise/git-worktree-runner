@@ -271,6 +271,19 @@ function __FUNC___gtrconfig_path
   end
 end
 
+function __FUNC___sha256
+  # Same algorithm as the POSIX __FUNC___sha256: shasum or sha256sum, 64 hex chars, else fail closed.
+  command sh -c '
+    if command -v shasum >/dev/null 2>&1; then d=$(shasum -a 256) || exit 1
+    elif command -v sha256sum >/dev/null 2>&1; then d=$(sha256sum) || exit 1
+    else exit 1; fi
+    d=${d%%[[:space:]]*}
+    case "$d" in *[!0-9a-f]*|"") exit 1 ;; esac
+    [ "${#d}" -eq 64 ] || exit 1
+    printf "%s\n" "$d"
+  '
+end
+
 function __FUNC___hooks_current_content_hash
   set -l _gtr_config_file "$argv[1]"
   set -l _gtr_hook_defs "$argv[2]"
@@ -278,7 +291,7 @@ function __FUNC___hooks_current_content_hash
     set _gtr_hook_defs (__FUNC___hooks_read_definitions "$_gtr_config_file")
   end
   test -n "$_gtr_hook_defs"; or return 1
-  printf '%s\n' "$_gtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
+  printf '%s\n' "$_gtr_hook_defs" | __FUNC___sha256
 end
 
 function __FUNC___hooks_repo_root
@@ -322,7 +335,7 @@ function __FUNC___hooks_current_trust_key
   set -l _gtr_repo_identity (__FUNC___hooks_repo_identity "$_gtr_repo_root" 2>/dev/null | string collect)
   test $pipestatus[1] -eq 0; or return 1
   test -n "$_gtr_repo_identity"; or return 1
-  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  printf 'v3\n%s\n%s\n%s\n' "$_gtr_repo_root" "$_gtr_repo_identity" "$_gtr_hook_hash" | __FUNC___sha256
 end
 
 function __FUNC___hooks_marker_matches_config
